@@ -75,7 +75,10 @@ func TestMerge_LocalOverridesRepoWholeTool(t *testing.T) {
 		},
 	}
 
-	got := Merge(repo, local)
+	got, err := Merge(repo, nil, local)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if got.DotfilesRoot != "~/dotfiles" {
 		t.Fatalf("unexpected DotfilesRoot: %q", got.DotfilesRoot)
@@ -86,5 +89,63 @@ func TestMerge_LocalOverridesRepoWholeTool(t *testing.T) {
 	}
 	if _, ok := got.Tools["nvim"]; !ok {
 		t.Fatalf("expected nvim to survive merge untouched")
+	}
+}
+
+func TestMerge_OverrideChainBaseProfileLocal(t *testing.T) {
+	base := Repo{Tools: map[string]Tool{
+		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
+	}}
+	profile := &Repo{Tools: map[string]Tool{
+		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.work"}},
+	}}
+	local := Local{Tools: map[string]Tool{
+		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}},
+	}}
+
+	got, err := Merge(base, profile, local)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := Tool{Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}}
+	if !reflect.DeepEqual(got.Tools["git"], want) {
+		t.Fatalf("expected local to win override chain, got %+v", got.Tools["git"])
+	}
+}
+
+func TestMerge_EnabledToolsFallsBackToAllWhenUndeclared(t *testing.T) {
+	base := Repo{Tools: map[string]Tool{"git": {}, "nvim": {}}}
+	got, err := Merge(base, nil, Local{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.Enabled["git"] || !got.Enabled["nvim"] {
+		t.Fatalf("expected all tools enabled by fallback, got %+v", got.Enabled)
+	}
+}
+
+func TestMerge_EnabledToolsUnionAcrossLayers(t *testing.T) {
+	base := Repo{
+		EnabledTools: []string{"git"},
+		Tools:        map[string]Tool{"git": {}, "git-work": {}, "local-tool": {}},
+	}
+	profile := &Repo{EnabledTools: []string{"git-work"}}
+	local := Local{EnabledTools: []string{"local-tool"}, Tools: map[string]Tool{"local-tool": {}}}
+
+	got, err := Merge(base, profile, local)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, name := range []string{"git", "git-work", "local-tool"} {
+		if !got.Enabled[name] {
+			t.Fatalf("expected %q enabled, got %+v", name, got.Enabled)
+		}
+	}
+}
+
+func TestMerge_EnabledToolsErrorsOnUndefinedTool(t *testing.T) {
+	base := Repo{EnabledTools: []string{"ghost"}, Tools: map[string]Tool{}}
+	if _, err := Merge(base, nil, Local{}); err == nil {
+		t.Fatalf("expected error for enabled_tools referencing undefined tool")
 	}
 }

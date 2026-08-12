@@ -18,15 +18,17 @@ type Core struct {
 
 // Local is the parsed contents of ten.local.toml.
 type Local struct {
-	Core  Core              `toml:"core"`
-	Vars  map[string]string `toml:"vars"`
-	Tools map[string]Tool   `toml:"tools"`
+	Core         Core              `toml:"core"`
+	Vars         map[string]string `toml:"vars"`
+	EnabledTools []string          `toml:"enabled_tools"`
+	Tools        map[string]Tool   `toml:"tools"`
 }
 
 // Repo is the parsed contents of a repository config file (ten.toml or
 // ten.<profile>.toml).
 type Repo struct {
-	Tools map[string]Tool `toml:"tools"`
+	EnabledTools []string        `toml:"enabled_tools"`
+	Tools        map[string]Tool `toml:"tools"`
 }
 
 // Merged is the fully resolved configuration used by the rest of the
