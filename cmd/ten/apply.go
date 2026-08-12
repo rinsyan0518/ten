@@ -26,8 +26,9 @@ func newApplyCmd() *cobra.Command {
 }
 
 type toolOutcome struct {
-	Tool  string
-	Links []apply.LinkResult
+	Tool      string
+	Links     []apply.LinkResult
+	Templates []apply.TemplateResult
 }
 
 func runApply(cmd *cobra.Command, dryRun bool) error {
@@ -71,8 +72,28 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 				links = append(links, result)
 			}
 		}
-		if len(links) > 0 {
-			outcomes = append(outcomes, toolOutcome{Tool: name, Links: links})
+		templateKeys := make([]string, 0, len(tool.Templates))
+		for k := range tool.Templates {
+			templateKeys = append(templateKeys, k)
+		}
+		sort.Strings(templateKeys)
+
+		var templates []apply.TemplateResult
+		for _, key := range templateKeys {
+			target, err := resolveKey(key, home)
+			if err != nil {
+				return fmt.Errorf("apply: tool %s: %w", name, err)
+			}
+			source := filepath.Join(merged.DotfilesRoot, tool.Templates[key])
+
+			result, err := apply.RenderTemplate(target, source, merged.Vars, backupDir, false, dryRun)
+			if err != nil {
+				return fmt.Errorf("apply: tool %s: %w", name, err)
+			}
+			templates = append(templates, result)
+		}
+		if len(links) > 0 || len(templates) > 0 {
+			outcomes = append(outcomes, toolOutcome{Tool: name, Links: links, Templates: templates})
 		}
 	}
 
@@ -83,10 +104,15 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 func formatApplyPlan(outcomes []toolOutcome, dryRun bool) string {
 	total := 0
 	for _, o := range outcomes {
-		total += len(o.Links)
+		total += len(o.Links) + len(o.Templates)
 	}
 	if total == 0 {
 		return "Plan: 0 to create\n"
+	}
+
+	suffix := ""
+	if dryRun {
+		suffix = " (dry-run)"
 	}
 
 	var b strings.Builder
@@ -94,11 +120,10 @@ func formatApplyPlan(outcomes []toolOutcome, dryRun bool) string {
 	for _, o := range outcomes {
 		fmt.Fprintf(&b, "  %s\n", o.Tool)
 		for _, r := range o.Links {
-			verb := "+ create symlink"
-			if dryRun {
-				verb = "+ create symlink (dry-run)"
-			}
-			fmt.Fprintf(&b, "    %s   %s -> %s\n", verb, r.Target, r.Source)
+			fmt.Fprintf(&b, "    + create symlink%s   %s -> %s\n", suffix, r.Target, r.Source)
+		}
+		for _, r := range o.Templates {
+			fmt.Fprintf(&b, "    ~ render template%s  %s <- %s\n", suffix, r.Target, r.Source)
 		}
 		b.WriteString("\n")
 	}
