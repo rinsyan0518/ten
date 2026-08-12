@@ -37,3 +37,69 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected output to mention symlink creation, got: %s", out)
 	}
 }
+
+func TestApply_BacksUpExistingFileBeforeLinking(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "[user]\n\tname = Taro\n")
+	sb.WriteFile(t, home+"/.gitconfig", "old local config\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("ten apply failed (exit %d): %s", code, out)
+	}
+
+	isLink, target, ok := sb.Lstat(t, home+"/.gitconfig")
+	if !ok || !isLink || target != home+"/dotfiles/git/.gitconfig" {
+		t.Fatalf("expected .gitconfig to become a symlink, got isLink=%v target=%q ok=%v", isLink, target, ok)
+	}
+
+	findOut, _, code := sb.Exec(t, "find "+home+"/.ten_backup -name .gitconfig")
+	if code != 0 || strings.TrimSpace(findOut) == "" {
+		t.Fatalf("expected a backup of the old .gitconfig under %s/.ten_backup, find output: %q", home, findOut)
+	}
+	content := sb.ReadFile(t, strings.TrimSpace(findOut))
+	if content != "old local config\n" {
+		t.Fatalf("unexpected backup content: %q", content)
+	}
+}
+
+func TestApply_SecondRunIsIdempotent(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "[user]\n\tname = Taro\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed")
+	}
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+	if strings.Contains(out, "create symlink") {
+		t.Fatalf("expected no-op on second apply, got output: %s", out)
+	}
+
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -type f 2>/dev/null")
+	if strings.TrimSpace(findOut) != "" {
+		t.Fatalf("expected no backup from idempotent second apply, found: %q", findOut)
+	}
+}
