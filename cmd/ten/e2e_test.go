@@ -143,3 +143,46 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected nvim symlink to be pruned after removing it from config")
 	}
 }
+
+func TestApply_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git-work]
+templates = { "home:.gitconfig" = "git/.gitconfig.tmpl" }
+
+[tools.nvim]
+links = { "xdg:nvim" = "nvim" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig.tmpl", "# git config\n")
+	sb.WriteFile(t, home+"/dotfiles/nvim/init.lua", "-- nvim\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed")
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.config/nvim"); !ok || !isLink {
+		t.Fatalf("expected nvim symlink to exist after first apply")
+	}
+
+	// Remove git-work's template source so its apply fails on re-apply.
+	// git-work sorts before nvim alphabetically, so the failure happens
+	// before nvim's (already-correct) resource is ever reached again.
+	sb.Exec(t, "rm "+home+"/dotfiles/git/.gitconfig.tmpl")
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected second apply to fail, got exit 0: %s", out)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.config/nvim"); !ok || !isLink {
+		t.Fatalf("expected nvim symlink to still exist on disk after the failed apply")
+	}
+	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	if !strings.Contains(stateJSON, home+"/.config/nvim") {
+		t.Fatalf("expected state to still track nvim's target after fail-fast, got: %s", stateJSON)
+	}
+}

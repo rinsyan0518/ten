@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -55,6 +56,8 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	backupDir := filepath.Join(home, ".ten_backup")
 
 	// Resolve every desired target up front so prune can run before apply.
+	// Link/template keys are sorted per tool for deterministic ordering,
+	// matching the convention established in Tasks 5/10/12.
 	type desiredTarget struct {
 		tool   string
 		kind   string // "symlink" | "template"
@@ -64,19 +67,31 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	var desired []desiredTarget
 	for _, name := range order {
 		tool := merged.Tools[name]
-		for key, rel := range tool.Links {
-			target, err := resolveKey(key, home)
-			if err != nil {
-				return fmt.Errorf("apply: tool %s: %w", name, err)
-			}
-			desired = append(desired, desiredTarget{tool: name, kind: "symlink", target: target, source: filepath.Join(merged.DotfilesRoot, rel)})
+
+		linkKeys := make([]string, 0, len(tool.Links))
+		for k := range tool.Links {
+			linkKeys = append(linkKeys, k)
 		}
-		for key, rel := range tool.Templates {
+		sort.Strings(linkKeys)
+		for _, key := range linkKeys {
 			target, err := resolveKey(key, home)
 			if err != nil {
 				return fmt.Errorf("apply: tool %s: %w", name, err)
 			}
-			desired = append(desired, desiredTarget{tool: name, kind: "template", target: target, source: filepath.Join(merged.DotfilesRoot, rel)})
+			desired = append(desired, desiredTarget{tool: name, kind: "symlink", target: target, source: filepath.Join(merged.DotfilesRoot, tool.Links[key])})
+		}
+
+		templateKeys := make([]string, 0, len(tool.Templates))
+		for k := range tool.Templates {
+			templateKeys = append(templateKeys, k)
+		}
+		sort.Strings(templateKeys)
+		for _, key := range templateKeys {
+			target, err := resolveKey(key, home)
+			if err != nil {
+				return fmt.Errorf("apply: tool %s: %w", name, err)
+			}
+			desired = append(desired, desiredTarget{tool: name, kind: "template", target: target, source: filepath.Join(merged.DotfilesRoot, tool.Templates[key])})
 		}
 	}
 
@@ -85,15 +100,25 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		desiredSet[d.target] = true
 	}
 
-	newState := state.State{ManagedResources: map[string]state.Resource{}}
+	pruneTargets := plan.Prune(current, desiredSet)
+	sort.Strings(pruneTargets) // deterministic prune order/output
 
-	for _, target := range plan.Prune(current, desiredSet) {
+	// Seed the new state from whatever is still desired, so a resource
+	// this run never reaches (because an earlier tool failed first) keeps
+	// its prior record instead of being silently dropped from tracking.
+	newState := state.State{ManagedResources: make(map[string]state.Resource, len(desiredSet))}
+	for target, res := range current.ManagedResources {
+		if desiredSet[target] {
+			newState.ManagedResources[target] = res
+		}
+	}
+
+	for _, target := range pruneTargets {
 		if !dryRun {
 			if err := os.RemoveAll(target); err != nil {
 				return fmt.Errorf("apply: prune %s: %w", target, err)
 			}
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Prune:\n    - remove %s\n", target)
 	}
 
 	byTool := make(map[string][]desiredTarget)
@@ -140,7 +165,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		}
 	}
 
-	fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(outcomes, dryRun))
+	fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(outcomes, pruneTargets, dryRun))
 
 	if !dryRun {
 		newState.LastApplied = time.Now()
@@ -159,8 +184,8 @@ func saveState(path string, s state.State, dryRun bool) {
 	_ = state.Save(path, s) // best-effort partial save on the fail-fast path
 }
 
-func formatApplyPlan(outcomes []toolOutcome, dryRun bool) string {
-	total := 0
+func formatApplyPlan(outcomes []toolOutcome, pruneTargets []string, dryRun bool) string {
+	total := len(pruneTargets)
 	for _, o := range outcomes {
 		total += len(o.Links) + len(o.Templates)
 	}
@@ -174,7 +199,7 @@ func formatApplyPlan(outcomes []toolOutcome, dryRun bool) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Plan: %d to create\n\n", total)
+	fmt.Fprintf(&b, "Plan: %d to create, %d to prune\n\n", total-len(pruneTargets), len(pruneTargets))
 	for _, o := range outcomes {
 		fmt.Fprintf(&b, "  %s\n", o.Tool)
 		for _, r := range o.Links {
@@ -184,6 +209,12 @@ func formatApplyPlan(outcomes []toolOutcome, dryRun bool) string {
 			fmt.Fprintf(&b, "    ~ render template%s  %s <- %s\n", suffix, r.Target, r.Source)
 		}
 		b.WriteString("\n")
+	}
+	if len(pruneTargets) > 0 {
+		b.WriteString("Prune:\n")
+		for _, target := range pruneTargets {
+			fmt.Fprintf(&b, "    - remove%s   %s\n", suffix, target)
+		}
 	}
 	return b.String()
 }
