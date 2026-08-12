@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/plan"
@@ -46,6 +47,12 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		managed[res.Tool] = true
 		byTool[res.Tool] = append(byTool[res.Tool], target)
 	}
+	// st.ManagedResources is a map, so byTool's slices are built in a
+	// nondeterministic order; sort them for a reproducible destroy order
+	// per tool (same convention as runApply's link/template key sorting).
+	for tool := range byTool {
+		sort.Strings(byTool[tool])
+	}
 
 	order, err := plan.DestroyOrder(merged.Tools, managed)
 	if err != nil {
@@ -57,7 +64,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	// hasn't been attempted yet) keeps its prior record instead of being
 	// silently dropped from tracking. Entries are removed only once their
 	// removal/restore has actually succeeded.
-	remaining := state.State{ManagedResources: make(map[string]state.Resource, len(st.ManagedResources))}
+	remaining := state.State{LastApplied: st.LastApplied, ManagedResources: make(map[string]state.Resource, len(st.ManagedResources))}
 	for target, res := range st.ManagedResources {
 		remaining.ManagedResources[target] = res
 	}

@@ -143,7 +143,17 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					return fmt.Errorf("apply: tool %s: %w", name, err)
 				}
 				if !dryRun {
-					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "symlink", Source: d.source, BackupPath: result.BackupPath}
+					// A backup is only produced the run that first takes it;
+					// a later idempotent apply returns no BackupPath even
+					// though the earlier backup (and the state entry
+					// pointing at it) is still what destroy must restore.
+					// Fall back to whatever was already recorded for this
+					// target so a routine re-apply doesn't clobber it.
+					backupPath := result.BackupPath
+					if backupPath == "" {
+						backupPath = current.ManagedResources[d.target].BackupPath
+					}
+					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "symlink", Source: d.source, BackupPath: backupPath}
 				}
 				if !result.Skipped {
 					links = append(links, result)
@@ -156,7 +166,15 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					return fmt.Errorf("apply: tool %s: %w", name, err)
 				}
 				if !dryRun {
-					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "template", Source: d.source, BackupPath: result.BackupPath}
+					// Same fallback as the symlink branch above: a
+					// re-render of an already-managed template takes no
+					// fresh backup, so preserve whatever backup_path was
+					// already on record for this target.
+					backupPath := result.BackupPath
+					if backupPath == "" {
+						backupPath = current.ManagedResources[d.target].BackupPath
+					}
+					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "template", Source: d.source, BackupPath: backupPath}
 				}
 				templates = append(templates, result)
 			}

@@ -241,6 +241,43 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	}
 }
 
+func TestDestroy_RestoresBackupAfterSecondApply(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	sb.WriteFile(t, home+"/.gitconfig", "original user config\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed")
+	}
+	// A second, completely normal idempotent re-apply must not lose the
+	// backup_path recorded by the first apply: Link returns Skipped with
+	// no BackupPath since the symlink is already correct, so the state
+	// write must fall back to the previously recorded backup_path rather
+	// than clobbering it with an empty one.
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	got := sb.ReadFile(t, home+"/.gitconfig")
+	if got != "original user config\n" {
+		t.Fatalf("expected original file restored after a second apply, got %q", got)
+	}
+}
+
 func TestDestroy_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
