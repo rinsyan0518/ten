@@ -8,5 +8,6 @@ func newRootCmd() *cobra.Command {
 		Short: "ten is an idempotent dotfiles manager",
 	}
 	root.AddCommand(newApplyCmd())
+	root.AddCommand(newDestroyCmd())
 	return root
 }

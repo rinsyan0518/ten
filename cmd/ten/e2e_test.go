@@ -186,3 +186,129 @@ links = { "xdg:nvim" = "nvim" }
 		t.Fatalf("expected state to still track nvim's target after fail-fast, got: %s", stateJSON)
 	}
 }
+
+func TestDestroy_RemovesManagedSymlink(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed")
+	}
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	if _, _, ok := sb.Lstat(t, home+"/.gitconfig"); ok {
+		t.Fatalf("expected .gitconfig to be removed by destroy")
+	}
+}
+
+func TestDestroy_RestoresBackup(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	sb.WriteFile(t, home+"/.gitconfig", "original user config\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed")
+	}
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	got := sb.ReadFile(t, home+"/.gitconfig")
+	if got != "original user config\n" {
+		t.Fatalf("expected original file restored, got %q", got)
+	}
+}
+
+func TestDestroy_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.a]
+links = { "home:.a" = "a/.a" }
+
+[tools.b]
+depends_on = ["a"]
+links = { "home:.b" = "b/.b" }
+
+[tools.c]
+depends_on = ["b"]
+links = { "home:.c" = "c/.c" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/a/.a", "a\n")
+	sb.WriteFile(t, home+"/dotfiles/b/.b", "b\n")
+	sb.WriteFile(t, home+"/dotfiles/c/.c", "c\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed")
+	}
+
+	// Sabotage b's tracked resource with a backup_path that doesn't exist
+	// on disk, so destroy's restore-from-backup step for b fails partway
+	// through the run. Destroy order is the reverse of apply order
+	// (c, b, a): c is destroyed successfully first, b's restore then
+	// fails, and a is never reached.
+	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	sabotaged := strings.Replace(stateJSON,
+		`"source": "`+home+`/dotfiles/b/.b"`,
+		`"source": "`+home+`/dotfiles/b/.b",
+      "backup_path": "`+home+`/.ten_backup/nonexistent/bogus"`,
+		1)
+	if sabotaged == stateJSON {
+		t.Fatalf("failed to sabotage state.json: source line for b not found in %s", stateJSON)
+	}
+	// WriteFile's heredoc requires a trailing newline to terminate cleanly.
+	sb.WriteFile(t, home+"/.config/ten/ten.state.json", sabotaged+"\n")
+
+	out, code := sb.Run(t, home, "destroy")
+	if code == 0 {
+		t.Fatalf("expected destroy to fail, got exit 0: %s", out)
+	}
+
+	if _, _, ok := sb.Lstat(t, home+"/.c"); ok {
+		t.Fatalf("expected .c to be removed before the failure")
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.b"); !ok || !isLink {
+		t.Fatalf("expected .b to remain a symlink after its failed restore")
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.a"); !ok || !isLink {
+		t.Fatalf("expected .a to remain untouched (not yet reached)")
+	}
+
+	finalState := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	if strings.Contains(finalState, home+"/.c\"") {
+		t.Fatalf("expected .c to be dropped from state after successful removal, got: %s", finalState)
+	}
+	if !strings.Contains(finalState, home+"/.b\"") {
+		t.Fatalf("expected .b to still be tracked in state after its failed removal, got: %s", finalState)
+	}
+	if !strings.Contains(finalState, home+"/.a\"") {
+		t.Fatalf("expected .a to still be tracked in state (never reached), got: %s", finalState)
+	}
+}

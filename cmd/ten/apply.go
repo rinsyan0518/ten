@@ -143,7 +143,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					return fmt.Errorf("apply: tool %s: %w", name, err)
 				}
 				if !dryRun {
-					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "symlink", Source: d.source}
+					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "symlink", Source: d.source, BackupPath: result.BackupPath}
 				}
 				if !result.Skipped {
 					links = append(links, result)
@@ -156,7 +156,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					return fmt.Errorf("apply: tool %s: %w", name, err)
 				}
 				if !dryRun {
-					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "template", Source: d.source}
+					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "template", Source: d.source, BackupPath: result.BackupPath}
 				}
 				templates = append(templates, result)
 			}
