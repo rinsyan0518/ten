@@ -35,4 +35,5 @@ type Merged struct {
 	DotfilesRoot string
 	Vars         map[string]string
 	Tools        map[string]Tool
+	Enabled      map[string]bool
 }
