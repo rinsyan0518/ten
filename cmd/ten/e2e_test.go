@@ -349,3 +349,32 @@ links = { "home:.c" = "c/.c" }
 		t.Fatalf("expected .a to still be tracked in state (never reached), got: %s", finalState)
 	}
 }
+
+func TestDestroy_DryRunMakesNoChanges(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed")
+	}
+	out, code := sb.Run(t, home, "destroy", "--dry-run")
+	if code != 0 {
+		t.Fatalf("destroy --dry-run failed (exit %d): %s", code, out)
+	}
+	if !strings.Contains(out, "dry-run") {
+		t.Fatalf("expected dry-run output to say so, got: %s", out)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.gitconfig"); !ok || !isLink {
+		t.Fatalf("expected .gitconfig to remain a symlink under --dry-run")
+	}
+}
