@@ -104,3 +104,42 @@ links = { "xdg:nvim" = "nvim" }
 		t.Fatalf("expected grouped tool headers, got: %s", out)
 	}
 }
+
+func TestApply_PrunesResourceRemovedFromConfig(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+
+[tools.nvim]
+links = { "xdg:nvim" = "nvim" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	sb.WriteFile(t, home+"/dotfiles/nvim/init.lua", "-- nvim\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed")
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.config/nvim"); !ok || !isLink {
+		t.Fatalf("expected nvim symlink to exist after first apply")
+	}
+
+	// Remove nvim from desired config, then re-apply.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+	if _, _, ok := sb.Lstat(t, home+"/.config/nvim"); ok {
+		t.Fatalf("expected nvim symlink to be pruned after removing it from config")
+	}
+}

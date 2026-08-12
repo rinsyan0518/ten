@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
+	"time"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/graph"
+	"github.com/rinsyan0518/ten/internal/plan"
+	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -36,6 +38,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("apply: resolve home dir: %w", err)
 	}
+	statePath := filepath.Join(home, ".config", "ten", "ten.state.json")
 
 	merged, err := loadMerged(home)
 	if err != nil {
@@ -45,52 +48,92 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("apply: %w", err)
 	}
+	current, err := state.Load(statePath)
+	if err != nil {
+		return fmt.Errorf("apply: load state: %w", err)
+	}
 	backupDir := filepath.Join(home, ".ten_backup")
 
-	var outcomes []toolOutcome
+	// Resolve every desired target up front so prune can run before apply.
+	type desiredTarget struct {
+		tool   string
+		kind   string // "symlink" | "template"
+		target string
+		source string
+	}
+	var desired []desiredTarget
 	for _, name := range order {
 		tool := merged.Tools[name]
-		linkKeys := make([]string, 0, len(tool.Links))
-		for k := range tool.Links {
-			linkKeys = append(linkKeys, k)
+		for key, rel := range tool.Links {
+			target, err := resolveKey(key, home)
+			if err != nil {
+				return fmt.Errorf("apply: tool %s: %w", name, err)
+			}
+			desired = append(desired, desiredTarget{tool: name, kind: "symlink", target: target, source: filepath.Join(merged.DotfilesRoot, rel)})
 		}
-		sort.Strings(linkKeys)
+		for key, rel := range tool.Templates {
+			target, err := resolveKey(key, home)
+			if err != nil {
+				return fmt.Errorf("apply: tool %s: %w", name, err)
+			}
+			desired = append(desired, desiredTarget{tool: name, kind: "template", target: target, source: filepath.Join(merged.DotfilesRoot, rel)})
+		}
+	}
 
+	desiredSet := make(map[string]bool, len(desired))
+	for _, d := range desired {
+		desiredSet[d.target] = true
+	}
+
+	newState := state.State{ManagedResources: map[string]state.Resource{}}
+
+	for _, target := range plan.Prune(current, desiredSet) {
+		if !dryRun {
+			if err := os.RemoveAll(target); err != nil {
+				return fmt.Errorf("apply: prune %s: %w", target, err)
+			}
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Prune:\n    - remove %s\n", target)
+	}
+
+	byTool := make(map[string][]desiredTarget)
+	var toolOrder []string
+	for _, d := range desired {
+		if _, seen := byTool[d.tool]; !seen {
+			toolOrder = append(toolOrder, d.tool)
+		}
+		byTool[d.tool] = append(byTool[d.tool], d)
+	}
+
+	var outcomes []toolOutcome
+	for _, name := range toolOrder {
 		var links []apply.LinkResult
-		for _, key := range linkKeys {
-			target, err := resolveKey(key, home)
-			if err != nil {
-				return fmt.Errorf("apply: tool %s: %w", name, err)
-			}
-			source := filepath.Join(merged.DotfilesRoot, tool.Links[key])
-
-			result, err := apply.Link(target, source, backupDir, dryRun)
-			if err != nil {
-				return fmt.Errorf("apply: tool %s: %w", name, err)
-			}
-			if !result.Skipped {
-				links = append(links, result)
-			}
-		}
-		templateKeys := make([]string, 0, len(tool.Templates))
-		for k := range tool.Templates {
-			templateKeys = append(templateKeys, k)
-		}
-		sort.Strings(templateKeys)
-
 		var templates []apply.TemplateResult
-		for _, key := range templateKeys {
-			target, err := resolveKey(key, home)
-			if err != nil {
-				return fmt.Errorf("apply: tool %s: %w", name, err)
+		for _, d := range byTool[name] {
+			switch d.kind {
+			case "symlink":
+				result, err := apply.Link(d.target, d.source, backupDir, dryRun)
+				if err != nil {
+					saveState(statePath, newState, dryRun)
+					return fmt.Errorf("apply: tool %s: %w", name, err)
+				}
+				if !dryRun {
+					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "symlink", Source: d.source}
+				}
+				if !result.Skipped {
+					links = append(links, result)
+				}
+			case "template":
+				result, err := apply.RenderTemplate(d.target, d.source, merged.Vars, backupDir, false, dryRun)
+				if err != nil {
+					saveState(statePath, newState, dryRun)
+					return fmt.Errorf("apply: tool %s: %w", name, err)
+				}
+				if !dryRun {
+					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "template", Source: d.source}
+				}
+				templates = append(templates, result)
 			}
-			source := filepath.Join(merged.DotfilesRoot, tool.Templates[key])
-
-			result, err := apply.RenderTemplate(target, source, merged.Vars, backupDir, false, dryRun)
-			if err != nil {
-				return fmt.Errorf("apply: tool %s: %w", name, err)
-			}
-			templates = append(templates, result)
 		}
 		if len(links) > 0 || len(templates) > 0 {
 			outcomes = append(outcomes, toolOutcome{Tool: name, Links: links, Templates: templates})
@@ -98,7 +141,22 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	}
 
 	fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(outcomes, dryRun))
+
+	if !dryRun {
+		newState.LastApplied = time.Now()
+		if err := state.Save(statePath, newState); err != nil {
+			return fmt.Errorf("apply: save state: %w", err)
+		}
+	}
 	return nil
+}
+
+func saveState(path string, s state.State, dryRun bool) {
+	if dryRun {
+		return
+	}
+	s.LastApplied = time.Now()
+	_ = state.Save(path, s) // best-effort partial save on the fail-fast path
 }
 
 func formatApplyPlan(outcomes []toolOutcome, dryRun bool) string {
