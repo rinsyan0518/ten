@@ -66,3 +66,37 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 		t.Fatalf("expected a backup of the old .gitconfig.local, find output: %q", findOut)
 	}
 }
+
+func TestApply_TemplateSecondRunDoesNotReBackup(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+
+[vars]
+git_email = "taro@work.example.com"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git-work]
+templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/gitconfig.local.tmpl", "email = {{ .Vars.git_email }}\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed")
+	}
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("second apply failed")
+	}
+
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -type f 2>/dev/null")
+	if strings.TrimSpace(findOut) != "" {
+		t.Fatalf("expected no backup from re-rendering a ten-managed template, found: %q", findOut)
+	}
+	got := sb.ReadFile(t, home+"/.gitconfig.local")
+	if got != "email = taro@work.example.com\n" {
+		t.Fatalf("unexpected content after second apply: %q", got)
+	}
+}

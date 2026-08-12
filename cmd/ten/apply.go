@@ -149,7 +149,8 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					links = append(links, result)
 				}
 			case "template":
-				result, err := apply.RenderTemplate(d.target, d.source, merged.Vars, backupDir, false, dryRun)
+				_, alreadyManaged := current.ManagedResources[d.target]
+				result, err := apply.RenderTemplate(d.target, d.source, merged.Vars, backupDir, alreadyManaged, dryRun)
 				if err != nil {
 					saveState(statePath, newState, dryRun)
 					return fmt.Errorf("apply: tool %s: %w", name, err)
