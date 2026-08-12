@@ -103,3 +103,31 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected no backup from idempotent second apply, found: %q", findOut)
 	}
 }
+
+func TestApply_DryRunMakesNoChanges(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "[user]\n\tname = Taro\n")
+
+	out, code := sb.Run(t, home, "apply", "--dry-run")
+	if code != 0 {
+		t.Fatalf("ten apply --dry-run failed (exit %d): %s", code, out)
+	}
+	if !strings.Contains(out, "dry-run") {
+		t.Fatalf("expected dry-run output to say so, got: %s", out)
+	}
+
+	_, _, ok := sb.Lstat(t, home+"/.gitconfig")
+	if ok {
+		t.Fatalf("expected no symlink to be created under --dry-run")
+	}
+}
