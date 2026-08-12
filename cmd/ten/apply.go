@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/rinsyan0518/ten/internal/apply"
+	"github.com/rinsyan0518/ten/internal/graph"
 	"github.com/spf13/cobra"
 )
 
@@ -33,15 +34,13 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("apply: load config: %w", err)
 	}
+	order, err := graph.Sort(merged)
+	if err != nil {
+		return fmt.Errorf("apply: %w", err)
+	}
 	backupDir := filepath.Join(home, ".ten_backup")
 
-	names := make([]string, 0, len(merged.Tools))
-	for name := range merged.Tools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
+	for _, name := range order {
 		tool := merged.Tools[name]
 		linkKeys := make([]string, 0, len(tool.Links))
 		for k := range tool.Links {

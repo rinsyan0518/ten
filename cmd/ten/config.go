@@ -20,12 +20,26 @@ func loadMerged(home string) (config.Merged, error) {
 	}
 
 	dotfilesRoot := expandHome(local.Core.DotfilesRoot, home)
-	repo, _, err := config.LoadRepo(filepath.Join(dotfilesRoot, "ten.toml"))
+	base, _, err := config.LoadRepo(filepath.Join(dotfilesRoot, "ten.toml"))
 	if err != nil {
 		return config.Merged{}, err
 	}
 
-	merged := config.Merge(repo, local)
+	var profilePtr *config.Repo
+	if local.Core.Profile != "" {
+		profileRepo, ok, err := config.LoadRepo(filepath.Join(dotfilesRoot, "ten."+local.Core.Profile+".toml"))
+		if err != nil {
+			return config.Merged{}, err
+		}
+		if ok {
+			profilePtr = &profileRepo
+		}
+	}
+
+	merged, err := config.Merge(base, profilePtr, local)
+	if err != nil {
+		return config.Merged{}, err
+	}
 	merged.DotfilesRoot = dotfilesRoot
 	return merged, nil
 }
