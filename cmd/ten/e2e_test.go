@@ -74,3 +74,33 @@ links = { "xdg:nvim" = "nvim" }
 		t.Fatalf("expected nvim to NOT be applied since it's not in enabled_tools")
 	}
 }
+
+func TestApply_GroupedPlanOutputFormat(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+
+[tools.nvim]
+links = { "xdg:nvim" = "nvim" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	sb.WriteFile(t, home+"/dotfiles/nvim/init.lua", "-- nvim config\n")
+
+	out, code := sb.Run(t, home, "apply", "--dry-run")
+	if code != 0 {
+		t.Fatalf("ten apply --dry-run failed (exit %d): %s", code, out)
+	}
+	if !strings.HasPrefix(out, "Plan: 2 to create") {
+		t.Fatalf("expected summary line, got: %s", out)
+	}
+	if !strings.Contains(out, "  git\n") || !strings.Contains(out, "  nvim\n") {
+		t.Fatalf("expected grouped tool headers, got: %s", out)
+	}
+}

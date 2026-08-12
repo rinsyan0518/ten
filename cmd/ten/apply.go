@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/graph"
@@ -24,6 +25,11 @@ func newApplyCmd() *cobra.Command {
 	return cmd
 }
 
+type toolOutcome struct {
+	Tool  string
+	Links []apply.LinkResult
+}
+
 func runApply(cmd *cobra.Command, dryRun bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -40,6 +46,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	}
 	backupDir := filepath.Join(home, ".ten_backup")
 
+	var outcomes []toolOutcome
 	for _, name := range order {
 		tool := merged.Tools[name]
 		linkKeys := make([]string, 0, len(tool.Links))
@@ -48,6 +55,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		}
 		sort.Strings(linkKeys)
 
+		var links []apply.LinkResult
 		for _, key := range linkKeys {
 			target, err := resolveKey(key, home)
 			if err != nil {
@@ -59,19 +67,40 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 			if err != nil {
 				return fmt.Errorf("apply: tool %s: %w", name, err)
 			}
-			printLinkResult(cmd, name, result, dryRun)
+			if !result.Skipped {
+				links = append(links, result)
+			}
+		}
+		if len(links) > 0 {
+			outcomes = append(outcomes, toolOutcome{Tool: name, Links: links})
 		}
 	}
+
+	fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(outcomes, dryRun))
 	return nil
 }
 
-func printLinkResult(cmd *cobra.Command, tool string, r apply.LinkResult, dryRun bool) {
-	if r.Skipped {
-		return
+func formatApplyPlan(outcomes []toolOutcome, dryRun bool) string {
+	total := 0
+	for _, o := range outcomes {
+		total += len(o.Links)
 	}
-	verb := "+ create symlink"
-	if dryRun {
-		verb = "+ create symlink (dry-run)"
+	if total == 0 {
+		return "Plan: 0 to create\n"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n    %s   %s -> %s\n", tool, verb, r.Target, r.Source)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Plan: %d to create\n\n", total)
+	for _, o := range outcomes {
+		fmt.Fprintf(&b, "  %s\n", o.Tool)
+		for _, r := range o.Links {
+			verb := "+ create symlink"
+			if dryRun {
+				verb = "+ create symlink (dry-run)"
+			}
+			fmt.Fprintf(&b, "    %s   %s -> %s\n", verb, r.Target, r.Source)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
