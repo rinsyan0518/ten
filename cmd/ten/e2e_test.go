@@ -279,6 +279,46 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	}
 }
 
+func TestDestroy_RestoresDirectoryBackup(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.nvim]
+links = { "xdg:nvim" = "nvim" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/nvim/init.lua", "-- managed nvim\n")
+	// A real pre-existing config *directory* that apply must back up and
+	// destroy must put back.
+	sb.WriteFile(t, home+"/.config/nvim/init.lua", "-- original nvim\n")
+	sb.WriteFile(t, home+"/.config/nvim/lua/plugins.lua", "-- original plugins\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed (exit %d): %s", code, out)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.config/nvim"); !ok || !isLink {
+		t.Fatalf("expected .config/nvim to be a symlink after apply")
+	}
+
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.config/nvim"); !ok || isLink {
+		t.Fatalf("expected .config/nvim to be a real directory again after destroy (isLink=%v ok=%v): %s", isLink, ok, out)
+	}
+	if got := sb.ReadFile(t, home+"/.config/nvim/init.lua"); got != "-- original nvim\n" {
+		t.Fatalf("expected original nvim/init.lua restored, got %q", got)
+	}
+	if got := sb.ReadFile(t, home+"/.config/nvim/lua/plugins.lua"); got != "-- original plugins\n" {
+		t.Fatalf("expected original nvim/lua/plugins.lua restored, got %q", got)
+	}
+}
+
 func TestDestroy_RestoresBackupAfterSecondApply(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()

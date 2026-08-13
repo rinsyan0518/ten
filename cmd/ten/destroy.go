@@ -72,7 +72,12 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	for _, tool := range order {
 		for _, target := range byTool[tool] {
 			res := st.ManagedResources[target]
-			result, err := apply.Unlink(target, res.BackupPath, dryRun)
+			result, err := apply.Unlink(apply.UnlinkRequest{
+				Target:     target,
+				Type:       res.Type,
+				Source:     res.Source,
+				BackupPath: res.BackupPath,
+			}, dryRun)
 			if err != nil {
 				if !dryRun {
 					if saveErr := state.Save(statePath, remaining); saveErr != nil {
@@ -81,7 +86,10 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 				}
 				return fmt.Errorf("destroy: tool %s: %w", tool, err)
 			}
-			if !dryRun {
+			// A skipped resource was left untouched on disk, so it stays
+			// tracked for a human to resolve rather than being quietly
+			// dropped from state.
+			if !dryRun && !result.Skipped {
 				delete(remaining.ManagedResources, target)
 			}
 			printUnlinkResult(cmd, tool, result, dryRun)
@@ -97,6 +105,10 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 }
 
 func printUnlinkResult(cmd *cobra.Command, tool string, r apply.UnlinkResult, dryRun bool) {
+	if r.Skipped {
+		fmt.Fprintf(cmd.OutOrStdout(), "warning: skipping %s: %s\n", r.Target, r.SkipReason)
+		return
+	}
 	verb := "- remove"
 	if r.Restored {
 		verb = "+ restore backup"
