@@ -30,8 +30,14 @@ func newApplyCmd() *cobra.Command {
 
 type toolOutcome struct {
 	Tool      string
+	PreApply  string
 	Links     []apply.LinkResult
 	Templates []apply.TemplateResult
+	PostApply string
+}
+
+func (o toolOutcome) empty() bool {
+	return o.PreApply == "" && o.PostApply == "" && len(o.Links) == 0 && len(o.Templates) == 0
 }
 
 func runApply(cmd *cobra.Command, dryRun bool) error {
@@ -122,25 +128,40 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	}
 
 	byTool := make(map[string][]desiredTarget)
-	var toolOrder []string
 	for _, d := range desired {
-		if _, seen := byTool[d.tool]; !seen {
-			toolOrder = append(toolOrder, d.tool)
-		}
 		byTool[d.tool] = append(byTool[d.tool], d)
 	}
 
+	out := cmd.OutOrStdout()
 	var outcomes []toolOutcome
-	for _, name := range toolOrder {
-		var links []apply.LinkResult
-		var templates []apply.TemplateResult
+	// Iterate the full DAG order rather than only the tools that own
+	// resources, so a tool defining just hooks still runs them in
+	// dependency order.
+	for _, name := range order {
+		tool := merged.Tools[name]
+		// Record the outcome as it is built up so a fail-fast exit can
+		// still report what this tool got through before it stopped.
+		outcome := toolOutcome{Tool: name, PreApply: tool.PreApply}
+		fail := func(err error) error {
+			if !outcome.empty() {
+				outcomes = append(outcomes, outcome)
+			}
+			saveState(statePath, newState, dryRun)
+			return fmt.Errorf("apply: tool %s: %w", name, err)
+		}
+
+		// Hook output streams straight to the user rather than being
+		// swallowed; the plan itself is printed after the whole run.
+		if err := apply.RunHook(tool.PreApply, out, dryRun); err != nil {
+			return fail(err)
+		}
+
 		for _, d := range byTool[name] {
 			switch d.kind {
 			case "symlink":
 				result, err := apply.Link(d.target, d.source, backupDir, dryRun)
 				if err != nil {
-					saveState(statePath, newState, dryRun)
-					return fmt.Errorf("apply: tool %s: %w", name, err)
+					return fail(err)
 				}
 				if !dryRun {
 					// A backup is only produced the run that first takes it;
@@ -156,14 +177,13 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "symlink", Source: d.source, BackupPath: backupPath}
 				}
 				if !result.Skipped {
-					links = append(links, result)
+					outcome.Links = append(outcome.Links, result)
 				}
 			case "template":
 				_, alreadyManaged := current.ManagedResources[d.target]
 				result, err := apply.RenderTemplate(d.target, d.source, merged.Vars, backupDir, alreadyManaged, dryRun)
 				if err != nil {
-					saveState(statePath, newState, dryRun)
-					return fmt.Errorf("apply: tool %s: %w", name, err)
+					return fail(err)
 				}
 				if !dryRun {
 					// Same fallback as the symlink branch above: a
@@ -176,15 +196,22 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					}
 					newState.ManagedResources[d.target] = state.Resource{Tool: name, Type: "template", Source: d.source, BackupPath: backupPath}
 				}
-				templates = append(templates, result)
+				outcome.Templates = append(outcome.Templates, result)
 			}
 		}
-		if len(links) > 0 || len(templates) > 0 {
-			outcomes = append(outcomes, toolOutcome{Tool: name, Links: links, Templates: templates})
+
+		if err := apply.RunHook(tool.PostApply, out, dryRun); err != nil {
+			// PostApply is only claimed in the plan once it has run, so a
+			// failing hook is reported by the error, not as a done step.
+			return fail(err)
+		}
+		outcome.PostApply = tool.PostApply
+		if !outcome.empty() {
+			outcomes = append(outcomes, outcome)
 		}
 	}
 
-	fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(outcomes, pruneTargets, dryRun))
+	fmt.Fprint(out, formatApplyPlan(outcomes, pruneTargets, dryRun))
 
 	if !dryRun {
 		newState.LastApplied = time.Now()
@@ -204,11 +231,13 @@ func saveState(path string, s state.State, dryRun bool) {
 }
 
 func formatApplyPlan(outcomes []toolOutcome, pruneTargets []string, dryRun bool) string {
-	total := len(pruneTargets)
+	resources := 0
 	for _, o := range outcomes {
-		total += len(o.Links) + len(o.Templates)
+		resources += len(o.Links) + len(o.Templates)
 	}
-	if total == 0 {
+	// Hooks are steps, not resources: they never count toward the summary
+	// line, but a hook-only tool still deserves to be shown.
+	if len(outcomes) == 0 && len(pruneTargets) == 0 {
 		return "Plan: 0 to create\n"
 	}
 
@@ -218,14 +247,20 @@ func formatApplyPlan(outcomes []toolOutcome, pruneTargets []string, dryRun bool)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Plan: %d to create, %d to prune\n\n", total-len(pruneTargets), len(pruneTargets))
+	fmt.Fprintf(&b, "Plan: %d to create, %d to prune\n\n", resources, len(pruneTargets))
 	for _, o := range outcomes {
 		fmt.Fprintf(&b, "  %s\n", o.Tool)
+		if o.PreApply != "" {
+			fmt.Fprintf(&b, "    > run pre_apply%s   %s\n", suffix, o.PreApply)
+		}
 		for _, r := range o.Links {
 			fmt.Fprintf(&b, "    + create symlink%s   %s -> %s\n", suffix, r.Target, r.Source)
 		}
 		for _, r := range o.Templates {
 			fmt.Fprintf(&b, "    ~ render template%s  %s <- %s\n", suffix, r.Target, r.Source)
+		}
+		if o.PostApply != "" {
+			fmt.Fprintf(&b, "    > run post_apply%s   %s\n", suffix, o.PostApply)
 		}
 		b.WriteString("\n")
 	}
