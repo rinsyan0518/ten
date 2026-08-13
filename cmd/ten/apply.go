@@ -55,9 +55,12 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	}
 	statePath := filepath.Join(home, ".config", "ten", "ten.state.json")
 
-	merged, err := loadMerged(home)
+	merged, repoFound, err := loadMerged(home)
 	if err != nil {
 		return fmt.Errorf("apply: load config: %w", err)
+	}
+	if err := checkDesiredState(merged, repoFound); err != nil {
+		return fmt.Errorf("apply: %w", err)
 	}
 	order, err := graph.Sort(merged)
 	if err != nil {

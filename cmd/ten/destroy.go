@@ -36,7 +36,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("destroy: load state: %w", err)
 	}
-	merged, err := loadMerged(home)
+	merged, _, err := loadMerged(home)
 	if err != nil {
 		return fmt.Errorf("destroy: load config: %w", err)
 	}

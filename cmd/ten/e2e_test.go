@@ -252,6 +252,77 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 	}
 }
 
+func TestApply_ErrorsWhenDotfilesRootIsUnset(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+profile = "work"
+`)
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail when dotfiles_root is unset, got exit 0: %s", out)
+	}
+	if !strings.Contains(out, "dotfiles_root") {
+		t.Fatalf("expected the error to name dotfiles_root, got: %s", out)
+	}
+}
+
+func TestApply_ErrorsWhenRepoConfigMissingInsteadOfPruningEverything(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+
+	// Simulate the misconfigured/not-yet-cloned repo case: the desired
+	// state would resolve to nothing, which must not prune everything.
+	sb.Exec(t, "rm "+home+"/dotfiles/ten.toml")
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail when no repo config file is found, got exit 0: %s", out)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.gitconfig"); !ok || !isLink {
+		t.Fatalf("expected the managed symlink to survive a misconfigured apply")
+	}
+	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	if !strings.Contains(stateJSON, home+"/.gitconfig") {
+		t.Fatalf("expected state to still track the resource, got: %s", stateJSON)
+	}
+}
+
+func TestApply_ErrorsWhenDotfilesRootDoesNotExist(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/not-cloned-yet"
+`)
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail when dotfiles_root does not exist, got exit 0: %s", out)
+	}
+	if !strings.Contains(out, "not-cloned-yet") {
+		t.Fatalf("expected the error to name the missing directory, got: %s", out)
+	}
+}
+
 func TestApply_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
