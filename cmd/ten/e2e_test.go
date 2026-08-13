@@ -142,6 +142,58 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if _, _, ok := sb.Lstat(t, home+"/.config/nvim"); ok {
 		t.Fatalf("expected nvim symlink to be pruned after removing it from config")
 	}
+	if !strings.Contains(out, "- remove symlink") {
+		t.Fatalf("expected prune output to name the removed resource type, got: %s", out)
+	}
+}
+
+func TestApply_PruneRestoresBackupInsteadOfDeleting(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+
+[tools.old]
+links = { "home:.oldrc" = "old/.oldrc" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	sb.WriteFile(t, home+"/dotfiles/old/.oldrc", "managed oldrc\n")
+	// A real user file that apply backs up when it takes the target over.
+	sb.WriteFile(t, home+"/.oldrc", "original oldrc\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+
+	// Drop the old tool from the config so its target gets pruned.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+
+	if isLink, _, ok := sb.Lstat(t, home+"/.oldrc"); !ok || isLink {
+		t.Fatalf("expected the pruned target to be the restored original file (isLink=%v ok=%v): %s", isLink, ok, out)
+	}
+	if got := sb.ReadFile(t, home+"/.oldrc"); got != "original oldrc\n" {
+		t.Fatalf("expected prune to restore the backed-up original file, got %q", got)
+	}
+	if !strings.Contains(out, "+ restore backup") {
+		t.Fatalf("expected prune output to show a backup restore, got: %s", out)
+	}
+	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	if strings.Contains(stateJSON, home+"/.oldrc") {
+		t.Fatalf("expected the pruned target to be dropped from state, got: %s", stateJSON)
+	}
 }
 
 func TestApply_ConvertingLinkToTemplateDoesNotWriteThroughSymlink(t *testing.T) {

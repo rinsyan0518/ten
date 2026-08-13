@@ -104,6 +104,20 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	return nil
 }
 
+// unlinkLine renders one resource leaving ten's control, in the format
+// shared by destroy's plan and apply's Prune section (§5): a restore names
+// the backup it comes from, a removal names the resource type.
+func unlinkLine(r apply.UnlinkResult, resType, backupPath, suffix string) string {
+	if r.Restored {
+		return fmt.Sprintf("    + restore backup%s    %s <- %s\n", suffix, r.Target, backupPath)
+	}
+	kind := resType
+	if kind == "" {
+		kind = "resource"
+	}
+	return fmt.Sprintf("    - remove %s%s    %s\n", kind, suffix, r.Target)
+}
+
 func printUnlinkResult(cmd *cobra.Command, tool string, r apply.UnlinkResult, dryRun bool) {
 	if r.Skipped {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: skipping %s: %s\n", r.Target, r.SkipReason)

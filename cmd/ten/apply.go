@@ -36,6 +36,14 @@ type toolOutcome struct {
 	PostApply string
 }
 
+// pruneOutcome is one resource that left ten's control this run, plus the
+// state record needed to describe what happened to it.
+type pruneOutcome struct {
+	Result     apply.UnlinkResult
+	Type       string
+	BackupPath string
+}
+
 func (o toolOutcome) empty() bool {
 	return o.PreApply == "" && o.PostApply == "" && len(o.Links) == 0 && len(o.Templates) == 0
 }
@@ -109,22 +117,44 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	pruneTargets := plan.Prune(current, desiredSet)
 	sort.Strings(pruneTargets) // deterministic prune order/output
 
-	// Seed the new state from whatever is still desired, so a resource
-	// this run never reaches (because an earlier tool failed first) keeps
-	// its prior record instead of being silently dropped from tracking.
-	newState := state.State{ManagedResources: make(map[string]state.Resource, len(desiredSet))}
+	// Seed the new state from every currently tracked resource, so anything
+	// this run never reaches — because an earlier tool or prune failed
+	// first — keeps its prior record instead of being silently dropped from
+	// tracking. Entries are removed only once their prune has actually
+	// succeeded, and desired entries are rewritten as they are applied.
+	newState := state.State{ManagedResources: make(map[string]state.Resource, len(current.ManagedResources))}
 	for target, res := range current.ManagedResources {
-		if desiredSet[target] {
-			newState.ManagedResources[target] = res
-		}
+		newState.ManagedResources[target] = res
 	}
 
+	out := cmd.OutOrStdout()
+
+	var prunes []pruneOutcome
 	for _, target := range pruneTargets {
-		if !dryRun {
-			if err := os.RemoveAll(target); err != nil {
-				return fmt.Errorf("apply: prune %s: %w", target, err)
-			}
+		res := current.ManagedResources[target]
+		// Leaving ten's control means the same thing for prune as for
+		// destroy (§4-④): restore the backup if there is one, otherwise
+		// remove what ten created.
+		result, err := apply.Unlink(apply.UnlinkRequest{
+			Target:     target,
+			Type:       res.Type,
+			Source:     res.Source,
+			BackupPath: res.BackupPath,
+		}, dryRun)
+		if err != nil {
+			saveState(statePath, newState, dryRun)
+			return fmt.Errorf("apply: prune %s: %w", target, err)
 		}
+		if result.Skipped {
+			// Left untouched on disk, so it stays tracked for a human to
+			// resolve rather than being quietly forgotten.
+			fmt.Fprintf(out, "warning: skipping prune of %s: %s\n", target, result.SkipReason)
+			continue
+		}
+		if !dryRun {
+			delete(newState.ManagedResources, target)
+		}
+		prunes = append(prunes, pruneOutcome{Result: result, Type: res.Type, BackupPath: res.BackupPath})
 	}
 
 	byTool := make(map[string][]desiredTarget)
@@ -132,7 +162,6 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		byTool[d.tool] = append(byTool[d.tool], d)
 	}
 
-	out := cmd.OutOrStdout()
 	var outcomes []toolOutcome
 	// Iterate the full DAG order rather than only the tools that own
 	// resources, so a tool defining just hooks still runs them in
@@ -216,7 +245,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		}
 	}
 
-	fmt.Fprint(out, formatApplyPlan(outcomes, pruneTargets, dryRun))
+	fmt.Fprint(out, formatApplyPlan(outcomes, prunes, dryRun))
 
 	if !dryRun {
 		newState.LastApplied = time.Now()
@@ -235,14 +264,14 @@ func saveState(path string, s state.State, dryRun bool) {
 	_ = state.Save(path, s) // best-effort partial save on the fail-fast path
 }
 
-func formatApplyPlan(outcomes []toolOutcome, pruneTargets []string, dryRun bool) string {
+func formatApplyPlan(outcomes []toolOutcome, prunes []pruneOutcome, dryRun bool) string {
 	resources := 0
 	for _, o := range outcomes {
 		resources += len(o.Links) + len(o.Templates)
 	}
 	// Hooks are steps, not resources: they never count toward the summary
 	// line, but a hook-only tool still deserves to be shown.
-	if len(outcomes) == 0 && len(pruneTargets) == 0 {
+	if len(outcomes) == 0 && len(prunes) == 0 {
 		return "Plan: 0 to create\n"
 	}
 
@@ -252,7 +281,7 @@ func formatApplyPlan(outcomes []toolOutcome, pruneTargets []string, dryRun bool)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Plan: %d to create, %d to prune\n\n", resources, len(pruneTargets))
+	fmt.Fprintf(&b, "Plan: %d to create, %d to prune\n\n", resources, len(prunes))
 	for _, o := range outcomes {
 		fmt.Fprintf(&b, "  %s\n", o.Tool)
 		if o.PreApply != "" {
@@ -269,10 +298,10 @@ func formatApplyPlan(outcomes []toolOutcome, pruneTargets []string, dryRun bool)
 		}
 		b.WriteString("\n")
 	}
-	if len(pruneTargets) > 0 {
+	if len(prunes) > 0 {
 		b.WriteString("Prune:\n")
-		for _, target := range pruneTargets {
-			fmt.Fprintf(&b, "    - remove%s   %s\n", suffix, target)
+		for _, p := range prunes {
+			b.WriteString(unlinkLine(p.Result, p.Type, p.BackupPath, suffix))
 		}
 	}
 	return b.String()
