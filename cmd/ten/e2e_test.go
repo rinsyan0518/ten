@@ -765,6 +765,50 @@ links = { "home:.c" = "c/.c" }
 	}
 }
 
+func TestDestroy_PlanOutputGroupsAndNamesTheBackupSource(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+
+[tools.nvim]
+links = { "xdg:nvim" = "nvim" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	sb.WriteFile(t, home+"/dotfiles/nvim/init.lua", "-- nvim\n")
+	// Only .gitconfig pre-exists, so only it gets a backup to restore.
+	sb.WriteFile(t, home+"/.gitconfig", "original user config\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed (exit %d): %s", code, out)
+	}
+
+	out, code := sb.Run(t, home, "destroy", "--dry-run")
+	if code != 0 {
+		t.Fatalf("destroy --dry-run failed (exit %d): %s", code, out)
+	}
+	if !strings.HasPrefix(out, "Plan: 2 to destroy") {
+		t.Fatalf("expected a `Plan: 2 to destroy` summary line, got: %s", out)
+	}
+	if !strings.Contains(out, "  git\n") || !strings.Contains(out, "  nvim\n") {
+		t.Fatalf("expected output grouped by tool, got: %s", out)
+	}
+	if !strings.Contains(out, "- remove symlink") {
+		t.Fatalf("expected the removal line to name the resource type, got: %s", out)
+	}
+	// The backup source is the user's only pre-flight confirmation of what
+	// an irreversible restore is about to move back.
+	if !strings.Contains(out, home+"/.gitconfig <- "+home+"/.ten_backup/") {
+		t.Fatalf("expected the restore line to name the backup it comes from, got: %s", out)
+	}
+}
+
 func TestDestroy_DryRunMakesNoChanges(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()

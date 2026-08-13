@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/plan"
@@ -70,7 +71,10 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		remaining.ManagedResources[target] = res
 	}
 
+	out := cmd.OutOrStdout()
+	var outcomes []destroyOutcome
 	for _, tool := range order {
+		outcome := destroyOutcome{Tool: tool}
 		for _, target := range byTool[tool] {
 			res := st.ManagedResources[target]
 			result, err := apply.Unlink(apply.UnlinkRequest{
@@ -80,6 +84,12 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 				BackupPath: res.BackupPath,
 			}, dryRun)
 			if err != nil {
+				// Report what was already destroyed before stopping, the
+				// same way a failed apply does.
+				if len(outcome.Entries) > 0 {
+					outcomes = append(outcomes, outcome)
+				}
+				fmt.Fprint(out, formatDestroyPlan(outcomes, dryRun))
 				if !dryRun {
 					if saveErr := state.Save(statePath, remaining); saveErr != nil {
 						return fmt.Errorf("destroy: tool %s: %w (also failed to save partial state: %v)", tool, err, saveErr)
@@ -87,15 +97,23 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 				}
 				return fmt.Errorf("destroy: tool %s: %w", tool, err)
 			}
-			// A skipped resource was left untouched on disk, so it stays
-			// tracked for a human to resolve rather than being quietly
-			// dropped from state.
-			if !dryRun && !result.Skipped {
+			if result.Skipped {
+				// Left untouched on disk, so it stays tracked for a human
+				// to resolve rather than being quietly dropped from state.
+				fmt.Fprintf(out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
+				continue
+			}
+			if !dryRun {
 				delete(remaining.ManagedResources, target)
 			}
-			printUnlinkResult(cmd, tool, result, dryRun)
+			outcome.Entries = append(outcome.Entries, destroyEntry{Result: result, Type: res.Type, BackupPath: res.BackupPath})
+		}
+		if len(outcome.Entries) > 0 {
+			outcomes = append(outcomes, outcome)
 		}
 	}
+
+	fmt.Fprint(out, formatDestroyPlan(outcomes, dryRun))
 
 	if !dryRun {
 		if err := state.Save(statePath, remaining); err != nil {
@@ -103,6 +121,49 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		}
 	}
 	return nil
+}
+
+// destroyEntry is one resource destroy took back out of ten's control,
+// plus the state record needed to describe what happened to it.
+type destroyEntry struct {
+	Result     apply.UnlinkResult
+	Type       string
+	BackupPath string
+}
+
+// destroyOutcome groups one tool's destroyed resources, mirroring apply's
+// per-tool grouping.
+type destroyOutcome struct {
+	Tool    string
+	Entries []destroyEntry
+}
+
+// formatDestroyPlan renders the destroy plan in the §5 format: a summary
+// line, then each tool's resources in destroy order.
+func formatDestroyPlan(outcomes []destroyOutcome, dryRun bool) string {
+	total := 0
+	for _, o := range outcomes {
+		total += len(o.Entries)
+	}
+	if total == 0 {
+		return "Plan: 0 to destroy\n"
+	}
+
+	suffix := ""
+	if dryRun {
+		suffix = " (dry-run)"
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Plan: %d to destroy\n\n", total)
+	for _, o := range outcomes {
+		fmt.Fprintf(&b, "  %s\n", o.Tool)
+		for _, e := range o.Entries {
+			b.WriteString(unlinkLine(e.Result, e.Type, e.BackupPath, suffix))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // unlinkLine renders one resource leaving ten's control, in the format
@@ -117,19 +178,4 @@ func unlinkLine(r apply.UnlinkResult, resType, backupPath, suffix string) string
 		kind = "resource"
 	}
 	return fmt.Sprintf("    - remove %s%s    %s\n", kind, suffix, r.Target)
-}
-
-func printUnlinkResult(cmd *cobra.Command, tool string, r apply.UnlinkResult, dryRun bool) {
-	if r.Skipped {
-		fmt.Fprintf(cmd.OutOrStdout(), "warning: skipping %s: %s\n", r.Target, r.SkipReason)
-		return
-	}
-	verb := "- remove"
-	if r.Restored {
-		verb = "+ restore backup"
-	}
-	if dryRun {
-		verb += " (dry-run)"
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n    %s   %s\n", tool, verb, r.Target)
 }
