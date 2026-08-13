@@ -145,6 +145,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 			BackupPath: res.BackupPath,
 		}, dryRun)
 		if err != nil {
+			fmt.Fprint(out, formatApplyPlan(nil, prunes, dryRun))
 			saveState(statePath, newState, dryRun)
 			return fmt.Errorf("apply: prune %s: %w", target, err)
 		}
@@ -178,6 +179,10 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 			if !outcome.empty() {
 				outcomes = append(outcomes, outcome)
 			}
+			// A failed run has already changed the filesystem, so report
+			// what got done before stopping rather than leaving the user
+			// with only an error message.
+			fmt.Fprint(out, formatApplyPlan(outcomes, prunes, dryRun))
 			saveState(statePath, newState, dryRun)
 			return fmt.Errorf("apply: tool %s: %w", name, err)
 		}

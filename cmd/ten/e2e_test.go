@@ -488,6 +488,37 @@ post_apply = "touch `+home+`/zzz-marker"
 	}
 }
 
+func TestApply_ReportsWhatWasAppliedBeforeAFailure(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	// aaa applies cleanly, then zzz fails on a missing template source.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.aaa]
+links = { "home:.aaa" = "a/.a" }
+
+[tools.zzz]
+depends_on = ["aaa"]
+templates = { "home:.zzz" = "z/missing.tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/a/.a", "a\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail on the missing template source: %s", out)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.aaa"); !ok || !isLink {
+		t.Fatalf("expected aaa's symlink to have been created before the failure")
+	}
+	if !strings.Contains(out, "create symlink") || !strings.Contains(out, home+"/.aaa") {
+		t.Fatalf("expected the failed run to still report the symlink it created, got: %s", out)
+	}
+}
+
 func TestDestroy_RemovesManagedSymlink(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
