@@ -180,7 +180,12 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 					outcome.Links = append(outcome.Links, result)
 				}
 			case "template":
-				_, alreadyManaged := current.ManagedResources[d.target]
+				// Only a resource previously managed as a template may be
+				// overwritten without a backup. Mere key presence is not
+				// enough: a target converted from links to templates is a
+				// symlink into the dotfiles repo, and treating it as ten's
+				// own output would render straight through it (§4-③).
+				alreadyManaged := current.ManagedResources[d.target].Type == "template"
 				result, err := apply.RenderTemplate(d.target, d.source, merged.Vars, backupDir, alreadyManaged, dryRun)
 				if err != nil {
 					return fail(err)

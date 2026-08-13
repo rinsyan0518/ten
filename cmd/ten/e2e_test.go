@@ -144,6 +144,62 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	}
 }
 
+func TestApply_ConvertingLinkToTemplateDoesNotWriteThroughSymlink(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+
+[vars]
+git_email = "taro@example.com"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig.local" = "git/gitconfig.local" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/gitconfig.local", "checked-in source\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.gitconfig.local"); !ok || !isLink {
+		t.Fatalf("expected .gitconfig.local to be a symlink after the first apply")
+	}
+
+	// Same tool, same target, now managed as a template instead of a link.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/gitconfig.local.tmpl", "email = {{ .Vars.git_email }}\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+
+	if got := sb.ReadFile(t, home+"/dotfiles/git/gitconfig.local"); got != "checked-in source\n" {
+		t.Fatalf("the dotfiles repo source was written through ten's own symlink, got %q", got)
+	}
+	if isLink, _, ok := sb.Lstat(t, home+"/.gitconfig.local"); !ok || isLink {
+		t.Fatalf("expected .gitconfig.local to be a real rendered file now (isLink=%v ok=%v)", isLink, ok)
+	}
+	if got := sb.ReadFile(t, home+"/.gitconfig.local"); got != "email = taro@example.com\n" {
+		t.Fatalf("unexpected rendered content: %q", got)
+	}
+
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -name .gitconfig.local")
+	backup := strings.TrimSpace(findOut)
+	if backup == "" {
+		t.Fatalf("expected the replaced symlink to be backed up under .ten_backup, find output: %q", findOut)
+	}
+	if _, _, code := sb.Exec(t, "test -L "+backup); code != 0 {
+		t.Fatalf("expected the backup %s to be the old symlink", backup)
+	}
+}
+
 func TestApply_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()

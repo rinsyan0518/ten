@@ -66,6 +66,14 @@ func RenderTemplate(target, sourcePath string, vars map[string]string, backupDir
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: mkdir for %s: %w", target, err)
 	}
+	// Never write through a symlink: os.WriteFile follows it and would
+	// corrupt whatever it points at (typically a file in the user's
+	// dotfiles repo). Belt and braces in case state and disk disagree.
+	if info, err := os.Lstat(target); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(target); err != nil {
+			return TemplateResult{}, fmt.Errorf("apply: remove symlink at template target %s: %w", target, err)
+		}
+	}
 	if err := os.WriteFile(target, buf.Bytes(), 0o644); err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: write template output %s: %w", target, err)
 	}
