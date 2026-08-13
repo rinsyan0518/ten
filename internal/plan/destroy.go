@@ -22,13 +22,24 @@ func DestroyOrder(allTools map[string]config.Tool, managedTools map[string]bool)
 		}
 	}
 
-	forward, err := graph.Sort(config.Merged{Tools: allTools, Enabled: managedTools})
+	// Order over every defined tool, not just the managed subset: a managed
+	// tool may validly depend on a tool that currently owns no resources
+	// (all of its links were pruned, or it only defines hooks), and sorting
+	// the subset alone would reject that as an unenabled dependency.
+	all := make(map[string]bool, len(allTools))
+	for name := range allTools {
+		all[name] = true
+	}
+	forward, err := graph.Sort(config.Merged{Tools: allTools, Enabled: all})
 	if err != nil {
 		return nil, err
 	}
-	reversed := make([]string, len(forward))
-	for i, name := range forward {
-		reversed[len(forward)-1-i] = name
+
+	order := make([]string, 0, len(managedTools))
+	for i := len(forward) - 1; i >= 0; i-- {
+		if managedTools[forward[i]] {
+			order = append(order, forward[i])
+		}
 	}
-	return reversed, nil
+	return order, nil
 }

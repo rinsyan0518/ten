@@ -1,6 +1,7 @@
 package plan_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/config"
@@ -48,6 +49,44 @@ func TestDestroyOrder_DiscardsNaiveAlphabeticalSort(t *testing.T) {
 	}
 	if pos["aaa"] >= pos["zzz"] {
 		t.Fatalf("expected aaa destroyed before zzz (correct topological reversal), got order %v", order)
+	}
+}
+
+func TestDestroyOrder_AllowsDependencyWithNoManagedResources(t *testing.T) {
+	// b is validly defined but currently owns no managed resources (its
+	// links were pruned, or it only defines hooks), so it isn't in the
+	// managed set. That must not wedge the ordering of a that depends on it.
+	tools := map[string]config.Tool{
+		"b": {},
+		"a": {DependsOn: []string{"b"}},
+	}
+	managed := map[string]bool{"a": true}
+
+	order, err := plan.DestroyOrder(tools, managed)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(order, []string{"a"}) {
+		t.Fatalf("expected [a], got %v", order)
+	}
+}
+
+func TestDestroyOrder_KeepsRelativeOrderWhenFilteringUnmanagedTools(t *testing.T) {
+	// Apply order is [c, b, a]; destroy order is its reverse [a, b, c],
+	// filtered down to the managed tools while keeping that relative order.
+	tools := map[string]config.Tool{
+		"c": {},
+		"b": {DependsOn: []string{"c"}},
+		"a": {DependsOn: []string{"b"}},
+	}
+	managed := map[string]bool{"a": true, "c": true}
+
+	order, err := plan.DestroyOrder(tools, managed)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(order, []string{"a", "c"}) {
+		t.Fatalf("expected [a c], got %v", order)
 	}
 }
 
