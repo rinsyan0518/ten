@@ -104,6 +104,32 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	}
 }
 
+func TestApply_ErrorsWhenLinkSourceDoesNotExist(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	// The tool points at a file that isn't in the dotfiles repo at all.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail on a missing link source, got exit 0: %s", out)
+	}
+	if !strings.Contains(out, home+"/dotfiles/git/.gitconfig") {
+		t.Fatalf("expected the error to name the missing source, got: %s", out)
+	}
+	if _, _, ok := sb.Lstat(t, home+"/.gitconfig"); ok {
+		t.Fatalf("expected no (dangling) symlink to be created for a missing source")
+	}
+}
+
 func TestApply_DryRunMakesNoChanges(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()

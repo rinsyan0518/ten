@@ -21,6 +21,15 @@ type LinkResult struct {
 // symlink, Link is a no-op (Skipped=true). If dryRun is true, no
 // filesystem changes are made.
 func Link(target, source, backupDir string, dryRun bool) (LinkResult, error) {
+	// Refuse before creating a symlink into nothing: os.Symlink happily
+	// produces a dangling link, which would then be reported as a success.
+	if _, err := os.Lstat(source); err != nil {
+		if os.IsNotExist(err) {
+			return LinkResult{}, fmt.Errorf("apply: link source %s does not exist", source)
+		}
+		return LinkResult{}, fmt.Errorf("apply: lstat link source %s: %w", source, err)
+	}
+
 	info, err := os.Lstat(target)
 	switch {
 	case err == nil && info.Mode()&os.ModeSymlink != 0:
