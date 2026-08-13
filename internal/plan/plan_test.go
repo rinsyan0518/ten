@@ -11,9 +11,9 @@ import (
 
 func TestPrune_ReturnsResourcesNotInDesired(t *testing.T) {
 	current := state.State{ManagedResources: map[string]state.Resource{
-		"/home/taro/.gitconfig":     {Tool: "git"},
-		"/home/taro/.config/nvim":   {Tool: "nvim"},
-		"/home/taro/.config/old":    {Tool: "removed-tool"},
+		"/home/taro/.gitconfig":   {Tool: "git"},
+		"/home/taro/.config/nvim": {Tool: "nvim"},
+		"/home/taro/.config/old":  {Tool: "removed-tool"},
 	}}
 	desired := map[string]bool{
 		"/home/taro/.gitconfig":   true,
