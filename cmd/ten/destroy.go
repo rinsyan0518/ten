@@ -16,6 +16,7 @@ func newDestroyCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "destroy",
+		Args:  cobra.NoArgs,
 		Short: "Remove all resources ten currently manages",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDestroy(cmd, dryRun)

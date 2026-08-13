@@ -19,6 +19,7 @@ func newApplyCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "apply",
+		Args:  cobra.NoArgs,
 		Short: "Apply the desired dotfiles state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runApply(cmd, dryRun)
