@@ -252,6 +252,90 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 	}
 }
 
+func TestApply_PruneSkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+
+[tools.old]
+links = { "home:.oldrc" = "old/.oldrc" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	sb.WriteFile(t, home+"/dotfiles/old/.oldrc", "managed oldrc\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+
+	// The user replaced ten's symlink with a real file of their own.
+	sb.Exec(t, "rm "+home+"/.oldrc")
+	sb.WriteFile(t, home+"/.oldrc", "hand written by the user\n")
+
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+
+	if got := sb.ReadFile(t, home+"/.oldrc"); got != "hand written by the user\n" {
+		t.Fatalf("prune destroyed a file ten no longer owns, got %q", got)
+	}
+	if !strings.Contains(out, "warning") || !strings.Contains(out, home+"/.oldrc") {
+		t.Fatalf("expected a warning naming the skipped target, got: %s", out)
+	}
+	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	if !strings.Contains(stateJSON, home+"/.oldrc") {
+		t.Fatalf("expected the skipped target to stay tracked in state, got: %s", stateJSON)
+	}
+}
+
+func TestDestroy_SkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
+[core]
+dotfiles_root = "`+home+`/dotfiles"
+`)
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed (exit %d): %s", code, out)
+	}
+
+	sb.Exec(t, "rm "+home+"/.gitconfig")
+	sb.WriteFile(t, home+"/.gitconfig", "hand written by the user\n")
+
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	if got := sb.ReadFile(t, home+"/.gitconfig"); got != "hand written by the user\n" {
+		t.Fatalf("destroy deleted a file ten no longer owns, got %q", got)
+	}
+	if !strings.Contains(out, "warning") || !strings.Contains(out, home+"/.gitconfig") {
+		t.Fatalf("expected a warning naming the skipped target, got: %s", out)
+	}
+	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	if !strings.Contains(stateJSON, home+"/.gitconfig") {
+		t.Fatalf("expected the skipped target to stay tracked in state, got: %s", stateJSON)
+	}
+}
+
 func TestApply_ErrorsWhenDotfilesRootIsUnset(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
