@@ -1,5 +1,7 @@
 # ten (点)
 
+[![CI](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml/badge.svg)](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml)
+
 `ten` is a Go CLI dotfiles manager.
 
 - **Idempotent** — running it repeatedly always converges to the same result
