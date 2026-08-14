@@ -51,7 +51,10 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	fmt.Fprint(cmd.OutOrStdout(), formatDestroyPlan(result, dryRun))
 
 	if !dryRun {
-		if saveErr := state.Save(statePath, remaining); saveErr != nil && runErr == nil {
+		if saveErr := state.Save(statePath, remaining); saveErr != nil {
+			if runErr != nil {
+				return fmt.Errorf("%w (also failed to save partial state: %v)", runErr, saveErr)
+			}
 			return fmt.Errorf("destroy: save state: %w", saveErr)
 		}
 	}

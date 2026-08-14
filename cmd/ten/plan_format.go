@@ -12,6 +12,8 @@ func formatApplyPlan(result apply.Result, dryRun bool) string {
 	for _, o := range result.Outcomes {
 		resources += len(o.Links) + len(o.Templates)
 	}
+	// Hooks are steps, not resources: they never count toward the summary
+	// line, but a hook-only tool still deserves to be shown.
 	if len(result.Outcomes) == 0 && len(result.Prunes) == 0 {
 		return "Plan: 0 to create\n"
 	}

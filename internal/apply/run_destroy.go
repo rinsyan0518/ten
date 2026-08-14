@@ -14,7 +14,7 @@ import (
 type DestroyParams struct {
 	Merged   config.Merged
 	Current  state.State
-	Home     string
+	Home     string // unused by Destroy itself; kept for symmetry with RunParams
 	DryRun   bool
 	Out      io.Writer
 	Executor Executor
@@ -56,6 +56,10 @@ func Destroy(p DestroyParams) (DestroyResult, state.State, error) {
 		managed[res.Tool] = true
 		byTool[res.Tool] = append(byTool[res.Tool], target)
 	}
+	// p.Current.ManagedResources is a map, so byTool's slices are built in
+	// a nondeterministic order; sort them for a reproducible destroy order
+	// per tool (same convention as plan.Desired's link/template key
+	// sorting).
 	for tool := range byTool {
 		sort.Strings(byTool[tool])
 	}
@@ -63,6 +67,11 @@ func Destroy(p DestroyParams) (DestroyResult, state.State, error) {
 	order, err := plan.DestroyOrder(p.Merged.Tools, managed)
 	if err != nil {
 		return DestroyResult{}, p.Current, fmt.Errorf("destroy: %w", err)
+	}
+
+	out := p.Out
+	if out == nil {
+		out = io.Discard
 	}
 
 	remaining := state.State{LastApplied: p.Current.LastApplied, ManagedResources: make(map[string]state.Resource, len(p.Current.ManagedResources))}
@@ -88,7 +97,7 @@ func Destroy(p DestroyParams) (DestroyResult, state.State, error) {
 				return DestroyResult{Outcomes: outcomes}, remaining, fmt.Errorf("destroy: tool %s: %w", tool, err)
 			}
 			if result.Skipped {
-				fmt.Fprintf(p.Out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
+				fmt.Fprintf(out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
 				continue
 			}
 			if !p.DryRun {

@@ -34,7 +34,7 @@ func Desired(merged config.Merged, order []string, home string) ([]Target, error
 		for _, key := range linkKeys {
 			target, err := pathresolve.ResolveKey(home, key)
 			if err != nil {
-				return nil, fmt.Errorf("plan: tool %s: %w", name, err)
+				return nil, fmt.Errorf("tool %s: %w", name, err)
 			}
 			desired = append(desired, Target{Tool: name, Kind: "symlink", Target: target, Source: filepath.Join(merged.DotfilesRoot, tool.Links[key])})
 		}
@@ -47,7 +47,7 @@ func Desired(merged config.Merged, order []string, home string) ([]Target, error
 		for _, key := range templateKeys {
 			target, err := pathresolve.ResolveKey(home, key)
 			if err != nil {
-				return nil, fmt.Errorf("plan: tool %s: %w", name, err)
+				return nil, fmt.Errorf("tool %s: %w", name, err)
 			}
 			desired = append(desired, Target{Tool: name, Kind: "template", Target: target, Source: filepath.Join(merged.DotfilesRoot, tool.Templates[key])})
 		}

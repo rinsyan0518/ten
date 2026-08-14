@@ -66,6 +66,11 @@ func Apply(p RunParams) (Result, state.State, error) {
 		return Result{}, p.Current, fmt.Errorf("apply: %w", err)
 	}
 
+	out := p.Out
+	if out == nil {
+		out = io.Discard
+	}
+
 	desired, err := plan.Desired(p.Merged, order, p.Home)
 	if err != nil {
 		return Result{}, p.Current, fmt.Errorf("apply: %w", err)
@@ -81,6 +86,11 @@ func Apply(p RunParams) (Result, state.State, error) {
 	pruneTargets := plan.Prune(p.Current, desiredSet)
 	sort.Strings(pruneTargets)
 
+	// Seed the new state from every currently tracked resource, so anything
+	// this run never reaches — because an earlier tool or prune failed
+	// first — keeps its prior record instead of being silently dropped from
+	// tracking. Entries are removed only once their prune has actually
+	// succeeded, and desired entries are rewritten as they are applied.
 	newState := state.State{ManagedResources: make(map[string]state.Resource, len(p.Current.ManagedResources))}
 	for target, res := range p.Current.ManagedResources {
 		newState.ManagedResources[target] = res
@@ -99,7 +109,7 @@ func Apply(p RunParams) (Result, state.State, error) {
 			return Result{Prunes: prunes}, newState, fmt.Errorf("apply: prune %s: %w", target, err)
 		}
 		if result.Skipped {
-			fmt.Fprintf(p.Out, "warning: skipping prune of %s: %s\n", target, result.SkipReason)
+			fmt.Fprintf(out, "warning: skipping prune of %s: %s\n", target, result.SkipReason)
 			continue
 		}
 		if !p.DryRun {
@@ -114,6 +124,9 @@ func Apply(p RunParams) (Result, state.State, error) {
 	}
 
 	var outcomes []ToolOutcome
+	// Iterate the full DAG order rather than only the tools that own
+	// resources, so a tool defining just hooks still runs them in
+	// dependency order.
 	for _, name := range order {
 		tool := p.Merged.Tools[name]
 		outcome := ToolOutcome{Tool: name, PreApply: tool.PreApply}
@@ -124,7 +137,7 @@ func Apply(p RunParams) (Result, state.State, error) {
 			return Result{Outcomes: outcomes, Prunes: prunes}, newState, fmt.Errorf("apply: tool %s: %w", name, err)
 		}
 
-		if err := p.Executor.RunHook(tool.PreApply, p.Out, p.DryRun); err != nil {
+		if err := p.Executor.RunHook(tool.PreApply, out, p.DryRun); err != nil {
 			return fail(err)
 		}
 
@@ -136,6 +149,12 @@ func Apply(p RunParams) (Result, state.State, error) {
 					return fail(err)
 				}
 				if !p.DryRun {
+					// A backup is only produced the run that first takes it;
+					// a later idempotent apply returns no BackupPath even
+					// though the earlier backup (and the state entry
+					// pointing at it) is still what destroy must restore.
+					// Fall back to whatever was already recorded for this
+					// target so a routine re-apply doesn't clobber it.
 					backupPath := result.BackupPath
 					if backupPath == "" {
 						backupPath = p.Current.ManagedResources[d.Target].BackupPath
@@ -146,12 +165,21 @@ func Apply(p RunParams) (Result, state.State, error) {
 					outcome.Links = append(outcome.Links, result)
 				}
 			case "template":
+				// Only a resource previously managed as a template may be
+				// overwritten without a backup. Mere key presence is not
+				// enough: a target converted from links to templates is a
+				// symlink into the dotfiles repo, and treating it as ten's
+				// own output would render straight through it.
 				alreadyManaged := p.Current.ManagedResources[d.Target].Type == "template"
 				result, err := p.Executor.RenderTemplate(d.Target, d.Source, p.Merged.Vars, backupDir, alreadyManaged, p.DryRun)
 				if err != nil {
 					return fail(err)
 				}
 				if !p.DryRun {
+					// Same fallback as the symlink branch above: a
+					// re-render of an already-managed template takes no
+					// fresh backup, so preserve whatever backup_path was
+					// already on record for this target.
 					backupPath := result.BackupPath
 					if backupPath == "" {
 						backupPath = p.Current.ManagedResources[d.Target].BackupPath
@@ -162,7 +190,7 @@ func Apply(p RunParams) (Result, state.State, error) {
 			}
 		}
 
-		if err := p.Executor.RunHook(tool.PostApply, p.Out, p.DryRun); err != nil {
+		if err := p.Executor.RunHook(tool.PostApply, out, p.DryRun); err != nil {
 			return fail(err)
 		}
 		outcome.PostApply = tool.PostApply
