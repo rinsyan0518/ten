@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/rinsyan0518/ten/internal/config"
-	"github.com/rinsyan0518/ten/internal/pathresolve"
 )
 
 // loadMerged loads ten.local.toml and ten.toml under home and returns the
@@ -73,16 +72,4 @@ func expandHome(p, home string) string {
 		return filepath.Join(home, strings.TrimPrefix(p, "~/"))
 	}
 	return p
-}
-
-func resolveKey(key, home string) (string, error) {
-	env := pathresolve.Env{Home: home, XDGConfigHome: xdgConfigHome(home)}
-	return pathresolve.Resolve(env, key)
-}
-
-func xdgConfigHome(home string) string {
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		return v
-	}
-	return filepath.Join(home, ".config")
 }
