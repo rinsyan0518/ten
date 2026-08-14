@@ -146,14 +146,14 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 			BackupPath: res.BackupPath,
 		}, dryRun)
 		if err != nil {
-			fmt.Fprint(out, formatApplyPlan(nil, prunes, dryRun))
+			_, _ = fmt.Fprint(out, formatApplyPlan(nil, prunes, dryRun))
 			saveState(statePath, newState, dryRun)
 			return fmt.Errorf("apply: prune %s: %w", target, err)
 		}
 		if result.Skipped {
 			// Left untouched on disk, so it stays tracked for a human to
 			// resolve rather than being quietly forgotten.
-			fmt.Fprintf(out, "warning: skipping prune of %s: %s\n", target, result.SkipReason)
+			_, _ = fmt.Fprintf(out, "warning: skipping prune of %s: %s\n", target, result.SkipReason)
 			continue
 		}
 		if !dryRun {
@@ -183,7 +183,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 			// A failed run has already changed the filesystem, so report
 			// what got done before stopping rather than leaving the user
 			// with only an error message.
-			fmt.Fprint(out, formatApplyPlan(outcomes, prunes, dryRun))
+			_, _ = fmt.Fprint(out, formatApplyPlan(outcomes, prunes, dryRun))
 			saveState(statePath, newState, dryRun)
 			return fmt.Errorf("apply: tool %s: %w", name, err)
 		}
@@ -254,7 +254,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		}
 	}
 
-	fmt.Fprint(out, formatApplyPlan(outcomes, prunes, dryRun))
+	_, _ = fmt.Fprint(out, formatApplyPlan(outcomes, prunes, dryRun))
 
 	if !dryRun {
 		newState.LastApplied = time.Now()
