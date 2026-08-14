@@ -4,8 +4,9 @@ import "github.com/spf13/cobra"
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "ten",
-		Short: "ten is an idempotent dotfiles manager",
+		Use:     "ten",
+		Short:   "ten is an idempotent dotfiles manager",
+		Version: version(),
 	}
 	root.AddCommand(newApplyCmd())
 	root.AddCommand(newDestroyCmd())

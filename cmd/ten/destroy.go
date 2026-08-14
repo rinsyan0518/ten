@@ -89,7 +89,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 				if len(outcome.Entries) > 0 {
 					outcomes = append(outcomes, outcome)
 				}
-				fmt.Fprint(out, formatDestroyPlan(outcomes, dryRun))
+				_, _ = fmt.Fprint(out, formatDestroyPlan(outcomes, dryRun))
 				if !dryRun {
 					if saveErr := state.Save(statePath, remaining); saveErr != nil {
 						return fmt.Errorf("destroy: tool %s: %w (also failed to save partial state: %v)", tool, err, saveErr)
@@ -100,7 +100,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 			if result.Skipped {
 				// Left untouched on disk, so it stays tracked for a human
 				// to resolve rather than being quietly dropped from state.
-				fmt.Fprintf(out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
+				_, _ = fmt.Fprintf(out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
 				continue
 			}
 			if !dryRun {
@@ -113,7 +113,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		}
 	}
 
-	fmt.Fprint(out, formatDestroyPlan(outcomes, dryRun))
+	_, _ = fmt.Fprint(out, formatDestroyPlan(outcomes, dryRun))
 
 	if !dryRun {
 		if err := state.Save(statePath, remaining); err != nil {

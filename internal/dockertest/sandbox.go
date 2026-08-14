@@ -4,49 +4,93 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 )
 
-// Sandbox is a running container with the ten binary installed, used to
-// exercise apply/destroy without touching the host filesystem.
+// sharedContainer is built and started lazily, on the first NewSandbox
+// call in a test binary, and torn down by RunWithSharedContainer after
+// all tests finish. It's shared across every NewSandbox call in that
+// binary rather than rebuilt per test, since building and stopping a
+// container is the dominant cost of each test. Starting it lazily (rather
+// than unconditionally in RunWithSharedContainer) means test files in the
+// same package that never touch a sandbox stay fast and Docker-free.
+var (
+	sharedContainer testcontainers.Container
+	sharedOnce      sync.Once
+	sharedErr       error
+)
+
+// RunWithSharedContainer runs m and then, if any test called NewSandbox,
+// terminates the shared container it started. Call it from a package's
+// TestMain:
+//
+//	func TestMain(m *testing.M) { os.Exit(dockertest.RunWithSharedContainer(m)) }
+func RunWithSharedContainer(m *testing.M) int {
+	code := m.Run()
+
+	if sharedContainer != nil {
+		if err := sharedContainer.Terminate(context.Background(), testcontainers.StopTimeout(0)); err != nil {
+			fmt.Fprintf(os.Stderr, "dockertest: terminate shared sandbox container: %v\n", err)
+		}
+	}
+	return code
+}
+
+func startSharedContainer() (testcontainers.Container, error) {
+	req := testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			// Every caller is a package two directories under the repo root
+			// (cmd/ten, internal/apply, internal/dockertest), and Go test
+			// binaries run with their package directory as the working
+			// directory.
+			Context:    "../..",
+			Dockerfile: "Dockerfile.test",
+		},
+		Cmd: []string{"sleep", "infinity"},
+	}
+	return testcontainers.GenericContainer(context.Background(), testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+}
+
+// Sandbox is an isolated home directory inside the shared sandbox
+// container, used to exercise apply/destroy without touching the host
+// filesystem.
 type Sandbox struct {
 	container testcontainers.Container
 	home      string
 }
 
-// NewSandbox builds Dockerfile.test (from the repo root) and starts a
-// container from it. The container is terminated automatically when the
-// test finishes.
+// NewSandbox creates a fresh, uniquely named home directory for t inside
+// the container started by RunWithSharedContainer.
 func NewSandbox(t *testing.T) *Sandbox {
 	t.Helper()
-	ctx := context.Background()
-
-	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    findRepoRoot(t),
-			Dockerfile: "Dockerfile.test",
-		},
-		Cmd: []string{"sleep", "infinity"},
+	sharedOnce.Do(func() {
+		sharedContainer, sharedErr = startSharedContainer()
+	})
+	if sharedErr != nil {
+		t.Fatalf("dockertest: start shared sandbox container: %v", sharedErr)
 	}
 
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("dockertest: start sandbox container: %v", err)
+	home := "/root/" + sanitizeTestName(t.Name())
+	sb := &Sandbox{container: sharedContainer, home: home}
+	if _, _, code := sb.Exec(t, "mkdir -p "+home); code != 0 {
+		t.Fatalf("dockertest: create home dir %s failed (exit %d)", home, code)
 	}
-	t.Cleanup(func() {
-		if err := c.Terminate(context.Background()); err != nil {
-			t.Logf("dockertest: terminate container: %v", err)
-		}
-	})
+	return sb
+}
 
-	return &Sandbox{container: c, home: "/root"}
+// sanitizeTestName maps a test name to a safe single path segment; Go test
+// names can contain "/" (subtests) and spaces (table-driven names).
+func sanitizeTestName(name string) string {
+	return strings.NewReplacer("/", "_", " ", "_").Replace(name)
 }
 
 // Home returns the sandbox's HOME directory path (inside the container).
@@ -110,10 +154,4 @@ func (s *Sandbox) Lstat(t *testing.T, path string) (isSymlink bool, target strin
 		return true, strings.TrimSpace(out), true
 	}
 	return false, "", true
-}
-
-func findRepoRoot(t *testing.T) string {
-	t.Helper()
-	// internal/dockertest -> repo root is two directories up.
-	return "../.."
 }

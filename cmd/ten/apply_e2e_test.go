@@ -1,4 +1,4 @@
-package apply_test
+package main_test
 
 import (
 	"strings"
