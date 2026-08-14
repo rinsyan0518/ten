@@ -47,3 +47,43 @@ func formatApplyPlan(result apply.Result, dryRun bool) string {
 	}
 	return b.String()
 }
+
+func formatDestroyPlan(result apply.DestroyResult, dryRun bool) string {
+	total := 0
+	for _, o := range result.Outcomes {
+		total += len(o.Entries)
+	}
+	if total == 0 {
+		return "Plan: 0 to destroy\n"
+	}
+
+	suffix := ""
+	if dryRun {
+		suffix = " (dry-run)"
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Plan: %d to destroy\n\n", total)
+	for _, o := range result.Outcomes {
+		fmt.Fprintf(&b, "  %s\n", o.Tool)
+		for _, e := range o.Entries {
+			b.WriteString(unlinkLine(e.Result, e.Type, e.BackupPath, suffix))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// unlinkLine renders one resource leaving ten's control, in the format
+// shared by destroy's plan and apply's Prune section: a restore names
+// the backup it comes from, a removal names the resource type.
+func unlinkLine(r apply.UnlinkResult, resType, backupPath, suffix string) string {
+	if r.Restored {
+		return fmt.Sprintf("    + restore backup%s    %s <- %s\n", suffix, r.Target, backupPath)
+	}
+	kind := resType
+	if kind == "" {
+		kind = "resource"
+	}
+	return fmt.Sprintf("    - remove %s%s    %s\n", kind, suffix, r.Target)
+}
