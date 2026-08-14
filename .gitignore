@@ -21,6 +21,9 @@ profile.cov
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+# Build output and repo-local dev tool binaries (see Makefile)
+/bin/
+
 # Go workspace file
 go.work
 go.work.sum

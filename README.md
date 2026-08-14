@@ -116,7 +116,7 @@ Neither command supports targeting individual tools — what gets applied or des
 Some tests (`internal/apply`, `cmd/ten`) write to a real filesystem and execute hook commands, so they run exclusively inside a Docker sandbox to avoid touching your local environment. Docker is required to run them.
 
 ```bash
-make build   # go build -o ten ./cmd/ten
+make build   # go build -o bin/ten ./cmd/ten
 make test    # go test -p 1 ./...
 make lint    # golangci-lint run
 make fmt     # gofmt -l -w .
