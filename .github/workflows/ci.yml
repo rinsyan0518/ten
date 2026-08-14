@@ -29,6 +29,9 @@ jobs:
         with:
           version: v2.12.2
 
+      - name: Format check
+        run: make fmt-check
+
       - name: Build
         run: make build
 

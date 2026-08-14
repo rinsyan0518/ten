@@ -1,7 +1,7 @@
 GOLANGCI_LINT_VERSION := v2.12.2
 GOLANGCI_LINT := bin/golangci-lint
 
-.PHONY: build test lint fmt ci
+.PHONY: build test lint fmt fmt-check ci
 
 build:
 	go build -o bin/ten ./cmd/ten
@@ -12,10 +12,13 @@ test:
 lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run
 
-fmt:
-	gofmt -l -w .
+fmt: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) fmt
 
-ci: build lint test
+fmt-check: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) fmt --diff
+
+ci: build fmt-check lint test
 
 # Installed into a repo-local ./bin (not GOPATH/bin) so this doesn't
 # overwrite a golangci-lint version another project on the machine
