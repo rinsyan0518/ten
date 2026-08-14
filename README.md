@@ -121,7 +121,8 @@ make test       # go test -p 1 ./...
 make lint       # golangci-lint run
 make fmt        # golangci-lint fmt (rewrites files)
 make fmt-check  # golangci-lint fmt --diff (fails if formatting is needed)
-make ci         # build + fmt-check + lint + test
+make vulncheck  # govulncheck ./...
+make ci         # build + fmt-check + lint + vulncheck + test
 ```
 
 ## License
