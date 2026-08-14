@@ -113,7 +113,7 @@ Neither command supports targeting individual tools — what gets applied or des
 
 ## Development
 
-Some tests (`internal/apply`, `cmd/ten`) write to a real filesystem and execute hook commands, so they run exclusively inside a Docker sandbox to avoid touching your local environment. Docker is required to run them.
+Some tests (`cmd/ten`) drive the built `ten` binary end to end, writing to a real filesystem and executing hook commands, so they run exclusively inside a Docker sandbox to avoid touching your local environment. Docker is required to run them.
 
 ```bash
 make build   # go build -o bin/ten ./cmd/ten
