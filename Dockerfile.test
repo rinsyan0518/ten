@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -o /out/ten ./cmd/ten
+
+FROM alpine:3.20
+RUN apk add --no-cache bash coreutils findutils
+COPY --from=build /out/ten /usr/local/bin/ten
+CMD ["sleep", "infinity"]
