@@ -48,7 +48,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		Out:      cmd.OutOrStdout(),
 		Executor: apply.NewOSExecutor(),
 	})
-	fmt.Fprint(cmd.OutOrStdout(), formatDestroyPlan(result, dryRun))
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatDestroyPlan(result, dryRun))
 
 	if !dryRun {
 		if saveErr := state.Save(statePath, remaining); saveErr != nil {

@@ -97,7 +97,7 @@ func Destroy(p DestroyParams) (DestroyResult, state.State, error) {
 				return DestroyResult{Outcomes: outcomes}, remaining, fmt.Errorf("destroy: tool %s: %w", tool, err)
 			}
 			if result.Skipped {
-				fmt.Fprintf(out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
+				_, _ = fmt.Fprintf(out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
 				continue
 			}
 			if !p.DryRun {

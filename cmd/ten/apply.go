@@ -53,7 +53,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		Out:      cmd.OutOrStdout(),
 		Executor: apply.NewOSExecutor(),
 	})
-	fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(result, dryRun))
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(result, dryRun))
 
 	if !dryRun {
 		newState.LastApplied = time.Now()

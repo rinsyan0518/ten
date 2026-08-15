@@ -109,7 +109,7 @@ func Apply(p RunParams) (Result, state.State, error) {
 			return Result{Prunes: prunes}, newState, fmt.Errorf("apply: prune %s: %w", target, err)
 		}
 		if result.Skipped {
-			fmt.Fprintf(out, "warning: skipping prune of %s: %s\n", target, result.SkipReason)
+			_, _ = fmt.Fprintf(out, "warning: skipping prune of %s: %s\n", target, result.SkipReason)
 			continue
 		}
 		if !p.DryRun {
