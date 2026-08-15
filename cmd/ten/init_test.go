@@ -80,6 +80,26 @@ func TestInit_PathFlagOverridesCwd(t *testing.T) {
 	}
 }
 
+func TestInit_PathFlagExpandsTilde(t *testing.T) {
+	home := newInitTestHome(t)
+	dotfilesRoot := filepath.Join(home, "dotfiles")
+	if err := os.MkdirAll(dotfilesRoot, 0o755); err != nil {
+		t.Fatalf("seed dotfiles dir: %v", err)
+	}
+
+	cmd := newRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"init", "--path", "~/dotfiles"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute init: %v", err)
+	}
+
+	got := loadState(t, home)
+	if got.DotfilesRoot != dotfilesRoot {
+		t.Fatalf("expected DotfilesRoot %q, got %q", dotfilesRoot, got.DotfilesRoot)
+	}
+}
+
 func TestInit_ProfileFlagSetsProfile(t *testing.T) {
 	home := newInitTestHome(t)
 	dotfilesRoot := t.TempDir()
