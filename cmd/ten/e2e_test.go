@@ -533,6 +533,19 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	}
 }
 
+func TestDestroy_NoOpsWhenDotfilesRootIsGoneAndNothingIsManaged(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.Exec(t, "rm -rf "+home+"/dotfiles")
+
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("expected destroy to no-op successfully when nothing is managed, even with dotfiles_root gone, got exit %d: %s", code, out)
+	}
+}
+
 func TestDestroy_RemovesManagedSymlink(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
