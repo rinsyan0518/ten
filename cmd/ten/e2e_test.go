@@ -552,6 +552,12 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if _, _, ok := sb.Lstat(t, home+"/.gitconfig"); ok {
 		t.Fatalf("expected .gitconfig to be removed by destroy")
 	}
+	// destroy's saved state must still carry the bootstrap fields forward,
+	// or the next command would force the user to re-run `ten init`.
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+	if !strings.Contains(stateJSON, home+"/dotfiles") {
+		t.Fatalf("expected dotfiles_root to survive destroy in state, got: %s", stateJSON)
+	}
 }
 
 func TestDestroy_RestoresBackup(t *testing.T) {
