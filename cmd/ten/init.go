@@ -20,7 +20,7 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&path, "path", "", "path to the dotfiles repository (defaults to the current directory)")
-	cmd.Flags().StringVar(&profile, "profile", "", "profile to activate (leaves the existing profile unchanged if omitted)")
+	cmd.Flags().StringVar(&profile, "profile", "", "profile to activate; leaves the existing profile unchanged if omitted, clears it if passed as an empty string")
 	return cmd
 }
 
@@ -53,7 +53,7 @@ func runInit(cmd *cobra.Command, path, profile string) error {
 	}
 
 	st.DotfilesRoot = absPath
-	if profile != "" {
+	if cmd.Flags().Changed("profile") {
 		st.Profile = profile
 	}
 

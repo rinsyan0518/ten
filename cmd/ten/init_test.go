@@ -119,6 +119,29 @@ func TestInit_OmittingProfilePreservesExisting(t *testing.T) {
 	}
 }
 
+func TestInit_ExplicitEmptyProfileClearsExisting(t *testing.T) {
+	home := newInitTestHome(t)
+	dotfilesRoot := t.TempDir()
+
+	first := newRootCmd()
+	first.SetOut(&bytes.Buffer{})
+	first.SetArgs([]string{"init", "--path", dotfilesRoot, "--profile", "work"})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("execute first init: %v", err)
+	}
+
+	second := newRootCmd()
+	second.SetOut(&bytes.Buffer{})
+	second.SetArgs([]string{"init", "--path", dotfilesRoot, "--profile", ""})
+	if err := second.Execute(); err != nil {
+		t.Fatalf("execute second init: %v", err)
+	}
+
+	if got := loadState(t, home).Profile; got != "" {
+		t.Fatalf("expected Profile to be cleared after --profile \"\", got %q", got)
+	}
+}
+
 func TestInit_PreservesManagedResources(t *testing.T) {
 	home := newInitTestHome(t)
 	dotfilesRoot := t.TempDir()

@@ -124,7 +124,9 @@ ten apply [--dry-run]                         Apply every tool resolved by the c
 ten destroy [--dry-run]                       Remove everything ten manages, in reverse order (restoring backups where they exist)
 ```
 
-Neither command supports targeting individual tools — what gets applied or destroyed is controlled declaratively via `enabled_tools`.
+Neither `ten apply` nor `ten destroy` supports targeting individual tools — what gets applied or destroyed is controlled declaratively via `enabled_tools`.
+
+`ten init`'s `--profile` leaves the existing profile unchanged when omitted; pass `--profile ""` explicitly to clear it.
 
 ## Development
 
