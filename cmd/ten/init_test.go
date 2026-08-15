@@ -9,6 +9,21 @@ import (
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
+// newInitTestHome creates an isolated HOME with $XDG_STATE_HOME pinned
+// under it. pathresolve.XDGStateHome checks $XDG_STATE_HOME before
+// falling back to a home-derived default, so pin it explicitly —
+// otherwise a test's isolation depends on the host shell not exporting
+// XDG_STATE_HOME, which is not a safe assumption (this project is
+// itself a dotfiles manager; a dev machine bootstrapped with it would
+// have XDG_STATE_HOME set globally, diverging from `home`).
+func newInitTestHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	return home
+}
+
 func loadState(t *testing.T, home string) state.State {
 	t.Helper()
 	got, err := state.Load(filepath.Join(home, ".local", "state", "ten", "ten.state.json"))
@@ -19,15 +34,7 @@ func loadState(t *testing.T, home string) state.State {
 }
 
 func TestInit_DefaultsPathToCwd(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
-	// to a home-derived default, so pin it explicitly — otherwise this
-	// test's isolation depends on the host shell not exporting
-	// XDG_STATE_HOME, which is not a safe assumption (this project is
-	// itself a dotfiles manager; a dev machine bootstrapped with it would
-	// have XDG_STATE_HOME set globally, diverging from `home`).
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	home := newInitTestHome(t)
 	dotfilesRoot := t.TempDir()
 	t.Chdir(dotfilesRoot)
 
@@ -57,15 +64,7 @@ func TestInit_DefaultsPathToCwd(t *testing.T) {
 }
 
 func TestInit_PathFlagOverridesCwd(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
-	// to a home-derived default, so pin it explicitly — otherwise this
-	// test's isolation depends on the host shell not exporting
-	// XDG_STATE_HOME, which is not a safe assumption (this project is
-	// itself a dotfiles manager; a dev machine bootstrapped with it would
-	// have XDG_STATE_HOME set globally, diverging from `home`).
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	home := newInitTestHome(t)
 	dotfilesRoot := t.TempDir()
 
 	cmd := newRootCmd()
@@ -82,15 +81,7 @@ func TestInit_PathFlagOverridesCwd(t *testing.T) {
 }
 
 func TestInit_ProfileFlagSetsProfile(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
-	// to a home-derived default, so pin it explicitly — otherwise this
-	// test's isolation depends on the host shell not exporting
-	// XDG_STATE_HOME, which is not a safe assumption (this project is
-	// itself a dotfiles manager; a dev machine bootstrapped with it would
-	// have XDG_STATE_HOME set globally, diverging from `home`).
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	home := newInitTestHome(t)
 	dotfilesRoot := t.TempDir()
 
 	cmd := newRootCmd()
@@ -106,15 +97,7 @@ func TestInit_ProfileFlagSetsProfile(t *testing.T) {
 }
 
 func TestInit_OmittingProfilePreservesExisting(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
-	// to a home-derived default, so pin it explicitly — otherwise this
-	// test's isolation depends on the host shell not exporting
-	// XDG_STATE_HOME, which is not a safe assumption (this project is
-	// itself a dotfiles manager; a dev machine bootstrapped with it would
-	// have XDG_STATE_HOME set globally, diverging from `home`).
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	home := newInitTestHome(t)
 	dotfilesRoot := t.TempDir()
 
 	first := newRootCmd()
@@ -137,15 +120,7 @@ func TestInit_OmittingProfilePreservesExisting(t *testing.T) {
 }
 
 func TestInit_PreservesManagedResources(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
-	// to a home-derived default, so pin it explicitly — otherwise this
-	// test's isolation depends on the host shell not exporting
-	// XDG_STATE_HOME, which is not a safe assumption (this project is
-	// itself a dotfiles manager; a dev machine bootstrapped with it would
-	// have XDG_STATE_HOME set globally, diverging from `home`).
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	home := newInitTestHome(t)
 	dotfilesRoot := t.TempDir()
 	statePath := filepath.Join(home, ".local", "state", "ten", "ten.state.json")
 	seeded := state.State{
@@ -171,15 +146,7 @@ func TestInit_PreservesManagedResources(t *testing.T) {
 }
 
 func TestInit_ErrorsWhenPathDoesNotExist(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
-	// to a home-derived default, so pin it explicitly — otherwise this
-	// test's isolation depends on the host shell not exporting
-	// XDG_STATE_HOME, which is not a safe assumption (this project is
-	// itself a dotfiles manager; a dev machine bootstrapped with it would
-	// have XDG_STATE_HOME set globally, diverging from `home`).
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	home := newInitTestHome(t)
 
 	cmd := newRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
@@ -190,15 +157,7 @@ func TestInit_ErrorsWhenPathDoesNotExist(t *testing.T) {
 }
 
 func TestInit_ErrorsWhenPathIsNotADirectory(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
-	// to a home-derived default, so pin it explicitly — otherwise this
-	// test's isolation depends on the host shell not exporting
-	// XDG_STATE_HOME, which is not a safe assumption (this project is
-	// itself a dotfiles manager; a dev machine bootstrapped with it would
-	// have XDG_STATE_HOME set globally, diverging from `home`).
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	home := newInitTestHome(t)
 	filePath := filepath.Join(home, "not-a-directory")
 	if err := os.WriteFile(filePath, []byte("x"), 0o644); err != nil {
 		t.Fatalf("seed file: %v", err)
