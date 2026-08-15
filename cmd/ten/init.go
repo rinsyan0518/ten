@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -36,10 +36,8 @@ func runInit(cmd *cobra.Command, path, profile string) error {
 		if err != nil {
 			return fmt.Errorf("init: resolve current directory: %w", err)
 		}
-	} else if path == "~" {
-		path = home
-	} else if strings.HasPrefix(path, "~/") {
-		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+	} else {
+		path = pathresolve.ExpandHome(path, home)
 	}
 	absPath, err := filepath.Abs(path)
 	if err != nil {

@@ -22,10 +22,7 @@ func Resolve(env Env, key string) (string, error) {
 	case strings.HasPrefix(key, "xdg:"):
 		return filepath.Join(env.XDGConfigHome, strings.TrimPrefix(key, "xdg:")), nil
 	case strings.HasPrefix(key, "custom:"):
-		p := strings.TrimPrefix(key, "custom:")
-		if strings.HasPrefix(p, "~/") {
-			return filepath.Join(env.Home, strings.TrimPrefix(p, "~/")), nil
-		}
+		p := ExpandHome(strings.TrimPrefix(key, "custom:"), env.Home)
 		if !filepath.IsAbs(p) {
 			return "", fmt.Errorf("pathresolve: custom path must be absolute: %q", p)
 		}
@@ -33,6 +30,18 @@ func Resolve(env Env, key string) (string, error) {
 	default:
 		return "", fmt.Errorf("pathresolve: unknown prefix in key %q", key)
 	}
+}
+
+// ExpandHome expands a leading "~" or "~/" in path to home. A path that
+// doesn't start with either is returned unchanged.
+func ExpandHome(path, home string) string {
+	if path == "~" {
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+	}
+	return path
 }
 
 // ResolveKey resolves a prefixed key against home, reading
