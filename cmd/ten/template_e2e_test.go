@@ -11,10 +11,9 @@ func TestApply_RendersTemplateWithVars(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.local.toml", `
 [vars]
 git_email = "taro@work.example.com"
 `)
@@ -43,10 +42,9 @@ func TestApply_TemplateBacksUpExistingFile(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.local.toml", `
 [vars]
 git_email = "taro@work.example.com"
 `)
@@ -71,10 +69,9 @@ func TestApply_TemplateSecondRunDoesNotReBackup(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.local.toml", `
 [vars]
 git_email = "taro@work.example.com"
 `)

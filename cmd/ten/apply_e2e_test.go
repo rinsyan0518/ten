@@ -11,10 +11,8 @@ func TestApply_CreatesSymlinkForSingleTool(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -42,10 +40,8 @@ func TestApply_BacksUpExistingFileBeforeLinking(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -77,10 +73,8 @@ func TestApply_SecondRunIsIdempotent(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -108,10 +102,8 @@ func TestApply_ErrorsWhenLinkSourceDoesNotExist(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	// The tool points at a file that isn't in the dotfiles repo at all.
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
@@ -134,10 +126,8 @@ func TestApply_DryRunMakesNoChanges(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }

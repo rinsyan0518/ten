@@ -10,29 +10,20 @@ type Tool struct {
 	PostApply string            `toml:"post_apply"`
 }
 
-// Core holds machine-local settings from ten.local.toml's [core] table.
-type Core struct {
-	DotfilesRoot string `toml:"dotfiles_root"`
-	Profile      string `toml:"profile"`
-}
-
-// Local is the parsed contents of ten.local.toml.
-type Local struct {
-	Core         Core              `toml:"core"`
+// File is the parsed contents of any of ten.toml, ten.<profile>.toml, or
+// ten.local.toml — all three share the same schema. What distinguishes
+// them is layering order and location (ten.local.toml lives inside the
+// dotfiles repo too, but is meant to be gitignored), not structure.
+type File struct {
 	Vars         map[string]string `toml:"vars"`
 	EnabledTools []string          `toml:"enabled_tools"`
 	Tools        map[string]Tool   `toml:"tools"`
 }
 
-// Repo is the parsed contents of a repository config file (ten.toml or
-// ten.<profile>.toml).
-type Repo struct {
-	EnabledTools []string        `toml:"enabled_tools"`
-	Tools        map[string]Tool `toml:"tools"`
-}
-
 // Merged is the fully resolved configuration used by the rest of the
-// pipeline (graph, plan, apply).
+// pipeline (graph, plan, apply). DotfilesRoot is set by the caller of
+// Merge (cmd/ten's loadMerged) from state.State.DotfilesRoot, not by
+// Merge itself — File no longer carries a dotfiles_root field.
 type Merged struct {
 	DotfilesRoot string
 	Vars         map[string]string

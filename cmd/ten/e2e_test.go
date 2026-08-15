@@ -11,11 +11,8 @@ func TestApply_MultiToolDAGOrder(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-profile = "work"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles", "--profile", "work")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 enabled_tools = ["git"]
 
@@ -51,10 +48,8 @@ func TestApply_UnenabledToolIsNotApplied(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 enabled_tools = ["git"]
 
@@ -79,10 +74,8 @@ func TestApply_GroupedPlanOutputFormat(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -109,10 +102,8 @@ func TestApply_PrunesResourceRemovedFromConfig(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -151,10 +142,8 @@ func TestApply_PruneRestoresBackupInsteadOfDeleting(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -190,7 +179,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if !strings.Contains(out, "+ restore backup") {
 		t.Fatalf("expected prune output to show a backup restore, got: %s", out)
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if strings.Contains(stateJSON, home+"/.oldrc") {
 		t.Fatalf("expected the pruned target to be dropped from state, got: %s", stateJSON)
 	}
@@ -200,10 +189,9 @@ func TestApply_ConvertingLinkToTemplateDoesNotWriteThroughSymlink(t *testing.T) 
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.local.toml", `
 [vars]
 git_email = "taro@example.com"
 `)
@@ -256,10 +244,8 @@ func TestApply_PruneSkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -293,7 +279,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if !strings.Contains(out, "warning") || !strings.Contains(out, home+"/.oldrc") {
 		t.Fatalf("expected a warning naming the skipped target, got: %s", out)
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.oldrc") {
 		t.Fatalf("expected the skipped target to stay tracked in state, got: %s", stateJSON)
 	}
@@ -303,10 +289,8 @@ func TestDestroy_SkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -330,7 +314,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if !strings.Contains(out, "warning") || !strings.Contains(out, home+"/.gitconfig") {
 		t.Fatalf("expected a warning naming the skipped target, got: %s", out)
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.gitconfig") {
 		t.Fatalf("expected the skipped target to stay tracked in state, got: %s", stateJSON)
 	}
@@ -339,11 +323,6 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 func TestApply_ErrorsWhenDotfilesRootIsUnset(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
-
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-profile = "work"
-`)
 
 	out, code := sb.Run(t, home, "apply")
 	if code == 0 {
@@ -358,10 +337,8 @@ func TestApply_ErrorsWhenRepoConfigMissingInsteadOfPruningEverything(t *testing.
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -383,7 +360,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if isLink, _, ok := sb.Lstat(t, home+"/.gitconfig"); !ok || !isLink {
 		t.Fatalf("expected the managed symlink to survive a misconfigured apply")
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.gitconfig") {
 		t.Fatalf("expected state to still track the resource, got: %s", stateJSON)
 	}
@@ -393,16 +370,15 @@ func TestApply_ErrorsWhenDotfilesRootDoesNotExist(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/not-cloned-yet"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Exec(t, "rm -rf "+home+"/dotfiles")
 
 	out, code := sb.Run(t, home, "apply")
 	if code == 0 {
 		t.Fatalf("expected apply to fail when dotfiles_root does not exist, got exit 0: %s", out)
 	}
-	if !strings.Contains(out, "not-cloned-yet") {
+	if !strings.Contains(out, home+"/dotfiles") {
 		t.Fatalf("expected the error to name the missing directory, got: %s", out)
 	}
 }
@@ -411,10 +387,8 @@ func TestApply_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git-work]
 templates = { "home:.gitconfig" = "git/.gitconfig.tmpl" }
@@ -444,7 +418,7 @@ links = { "xdg:nvim" = "nvim" }
 	if isLink, _, ok := sb.Lstat(t, home+"/.config/nvim"); !ok || !isLink {
 		t.Fatalf("expected nvim symlink to still exist on disk after the failed apply")
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.config/nvim") {
 		t.Fatalf("expected state to still track nvim's target after fail-fast, got: %s", stateJSON)
 	}
@@ -454,10 +428,8 @@ func TestApply_HookFailureStopsLaterToolsFailFast(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	// aaa's pre_apply fails, so neither aaa's own link nor anything in the
 	// dependent tool zzz may be applied.
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
@@ -492,10 +464,8 @@ func TestApply_ReportsWhatWasAppliedBeforeAFailure(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	// aaa applies cleanly, then zzz fails on a missing template source.
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.aaa]
@@ -523,10 +493,8 @@ func TestCLI_RejectsUnexpectedPositionalArguments(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -566,10 +534,8 @@ func TestDestroy_RemovesManagedSymlink(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -586,16 +552,20 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if _, _, ok := sb.Lstat(t, home+"/.gitconfig"); ok {
 		t.Fatalf("expected .gitconfig to be removed by destroy")
 	}
+	// destroy's saved state must still carry the bootstrap fields forward,
+	// or the next command would force the user to re-run `ten init`.
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+	if !strings.Contains(stateJSON, home+"/dotfiles") {
+		t.Fatalf("expected dotfiles_root to survive destroy in state, got: %s", stateJSON)
+	}
 }
 
 func TestDestroy_RestoresBackup(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -620,10 +590,8 @@ func TestDestroy_RestoresDirectoryBackup(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.nvim]
 links = { "xdg:nvim" = "nvim" }
@@ -660,10 +628,8 @@ func TestDestroy_RestoresBackupAfterSecondApply(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -697,10 +663,8 @@ func TestDestroy_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.a]
 links = { "home:.a" = "a/.a" }
@@ -726,7 +690,7 @@ links = { "home:.c" = "c/.c" }
 	// through the run. Destroy order is the reverse of apply order
 	// (c, b, a): c is destroyed successfully first, b's restore then
 	// fails, and a is never reached.
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	sabotaged := strings.Replace(stateJSON,
 		`"source": "`+home+`/dotfiles/b/.b"`,
 		`"source": "`+home+`/dotfiles/b/.b",
@@ -736,7 +700,7 @@ links = { "home:.c" = "c/.c" }
 		t.Fatalf("failed to sabotage state.json: source line for b not found in %s", stateJSON)
 	}
 	// WriteFile's heredoc requires a trailing newline to terminate cleanly.
-	sb.WriteFile(t, home+"/.config/ten/ten.state.json", sabotaged+"\n")
+	sb.WriteFile(t, home+"/.local/state/ten/ten.state.json", sabotaged+"\n")
 
 	out, code := sb.Run(t, home, "destroy")
 	if code == 0 {
@@ -753,7 +717,7 @@ links = { "home:.c" = "c/.c" }
 		t.Fatalf("expected .a to remain untouched (not yet reached)")
 	}
 
-	finalState := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	finalState := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if strings.Contains(finalState, home+"/.c\"") {
 		t.Fatalf("expected .c to be dropped from state after successful removal, got: %s", finalState)
 	}
@@ -769,10 +733,8 @@ func TestDestroy_PlanOutputGroupsAndNamesTheBackupSource(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -813,10 +775,8 @@ func TestDestroy_DryRunMakesNoChanges(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }

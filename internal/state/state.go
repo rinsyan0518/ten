@@ -17,6 +17,8 @@ type Resource struct {
 
 // State is the parsed contents of ten.state.json.
 type State struct {
+	DotfilesRoot     string              `json:"dotfiles_root,omitempty"`
+	Profile          string              `json:"profile,omitempty"`
 	LastApplied      time.Time           `json:"last_applied"`
 	ManagedResources map[string]Resource `json:"managed_resources"`
 }

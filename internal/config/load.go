@@ -6,24 +6,16 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// LoadLocal reads and parses ten.local.toml at path.
-func LoadLocal(path string) (Local, error) {
-	var l Local
-	if _, err := toml.DecodeFile(path, &l); err != nil {
-		return Local{}, err
-	}
-	return l, nil
-}
-
-// LoadRepo reads and parses a repository config file at path. If the file
-// does not exist, it returns a zero-value Repo and ok=false without error
-// (repo config files are optional).
-func LoadRepo(path string) (repo Repo, ok bool, err error) {
+// LoadFile reads and parses a ten config file (ten.toml,
+// ten.<profile>.toml, or ten.local.toml) at path. If the file does not
+// exist, it returns a zero-value File and ok=false without error — all
+// three file kinds are optional.
+func LoadFile(path string) (file File, ok bool, err error) {
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		return Repo{}, false, nil
+		return File{}, false, nil
 	}
-	if _, err := toml.DecodeFile(path, &repo); err != nil {
-		return Repo{}, false, err
+	if _, err := toml.DecodeFile(path, &file); err != nil {
+		return File{}, false, err
 	}
-	return repo, true, nil
+	return file, true, nil
 }

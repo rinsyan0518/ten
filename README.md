@@ -29,23 +29,18 @@ go build -o ten ./cmd/ten
 
 `ten` works with three kinds of config/state:
 
-| File | Location | Git-tracked | Role |
+| File | Location | Track in your dotfiles repo? | Role |
 |---|---|---|---|
-| `ten.local.toml` | `~/.config/ten/ten.local.toml` | No | Machine-local settings (`dotfiles_root`, `profile`, secret vars, etc.) |
 | `ten.toml` / `ten.<profile>.toml` | `<dotfiles_root>/` | Yes | Desired state — which tools go where |
-| `ten.state.json` | `~/.config/ten/ten.state.json` | No | Auto-generated record of what `ten` currently manages |
+| `ten.local.toml` | `<dotfiles_root>/ten.local.toml` | No (add to `.gitignore`) | Machine-local settings: secret vars and local tool overrides |
+| `ten.state.json` | `$XDG_STATE_HOME/ten/ten.state.json` (falls back to `~/.local/state/ten/ten.state.json`) | N/A (lives outside the repo) | Bootstrap pointer (`dotfiles_root`/`profile`, set by `ten init`) plus an auto-generated record of what `ten` currently manages |
 
-### 1. Create your machine-local config
+### 1. Point ten at your dotfiles repo
 
-```toml
-# ~/.config/ten/ten.local.toml
-[core]
-dotfiles_root = "~/dotfiles"
-profile = "work" # optional; controls which ten.<profile>.toml gets loaded
-
-[vars]
-git_email = "taro.yamada@work.example.com"
-git_name = "Taro Yamada"
+```bash
+cd ~/dotfiles
+ten init                                    # dotfiles_root defaults to the current directory
+# or: ten init --path ~/dotfiles --profile work
 ```
 
 ### 2. Add `ten.toml` to your dotfiles repo
@@ -62,7 +57,22 @@ links = { "xdg:nvim" = "nvim" }
 post_apply = "nvim --headless '+Lazy! sync' +qa"
 ```
 
-### 3. Apply
+### 3. (Optional) Add machine-local overrides
+
+`ten.local.toml` lives inside your dotfiles repo alongside `ten.toml`, so add it to `.gitignore` before creating it:
+
+```bash
+echo ten.local.toml >> ~/dotfiles/.gitignore
+```
+
+```toml
+# ~/dotfiles/ten.local.toml — gitignored, not committed
+[vars]
+git_email = "taro.yamada@work.example.com"
+git_name = "Taro Yamada"
+```
+
+### 4. Apply
 
 ```bash
 ten apply --dry-run   # preview what would change
@@ -104,11 +114,14 @@ enabled_tools = ["git-work"]
 
 `[tools.*]` definitions themselves are layered `ten.toml` → `ten.<profile>.toml` → `ten.local.toml`, with each layer fully replacing a same-named tool (whole-tool replace, no field-level merging).
 
+`vars` follows the same layering (`ten.toml` → `ten.<profile>.toml` → `ten.local.toml`) but merges per variable key rather than per tool: a variable declared in a later layer overrides only that one key, leaving variables declared solely in earlier layers untouched.
+
 ## Commands
 
 ```
-ten apply [--dry-run]     Apply every tool resolved by the current profile, in DAG order
-ten destroy [--dry-run]   Remove everything ten manages, in reverse order (restoring backups where they exist)
+ten init [--path <path>] [--profile <name>]   Point ten at a dotfiles repository (--path defaults to the current directory)
+ten apply [--dry-run]                         Apply every tool resolved by the current profile, in DAG order
+ten destroy [--dry-run]                       Remove everything ten manages, in reverse order (restoring backups where they exist)
 ```
 
 Neither command supports targeting individual tools — what gets applied or destroyed is controlled declaratively via `enabled_tools`.

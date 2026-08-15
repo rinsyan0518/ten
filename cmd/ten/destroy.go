@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/state"
@@ -29,13 +28,13 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("destroy: resolve home dir: %w", err)
 	}
-	statePath := filepath.Join(home, ".config", "ten", "ten.state.json")
 
-	st, err := state.Load(statePath)
+	st, statePath, err := loadBootstrap(home)
 	if err != nil {
-		return fmt.Errorf("destroy: load state: %w", err)
+		return fmt.Errorf("destroy: %w", err)
 	}
-	merged, _, err := loadMerged(home)
+
+	merged, _, err := loadMerged(st.DotfilesRoot, st.Profile)
 	if err != nil {
 		return fmt.Errorf("destroy: load config: %w", err)
 	}
@@ -51,6 +50,12 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatDestroyPlan(result, dryRun))
 
 	if !dryRun {
+		// apply.Destroy's returned state carries LastApplied over from
+		// Current but not the bootstrap fields (it doesn't know about
+		// them) — restore them explicitly before saving, same reasoning
+		// as runApply.
+		remaining.DotfilesRoot = st.DotfilesRoot
+		remaining.Profile = st.Profile
 		if saveErr := state.Save(statePath, remaining); saveErr != nil {
 			if runErr != nil {
 				return fmt.Errorf("%w (also failed to save partial state: %v)", runErr, saveErr)

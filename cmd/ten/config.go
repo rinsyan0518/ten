@@ -4,43 +4,63 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/rinsyan0518/ten/internal/config"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
+	"github.com/rinsyan0518/ten/internal/state"
 )
 
-// loadMerged loads ten.local.toml and ten.toml under home and returns the
-// merged configuration. It is the single source of truth for config
-// loading shared by the apply and destroy commands. repoFound reports
-// whether any repository config file (ten.toml or ten.<profile>.toml) was
-// actually present; apply uses it as a safety check (see checkDesiredState).
-func loadMerged(home string) (merged config.Merged, repoFound bool, err error) {
-	localPath := filepath.Join(home, ".config", "ten", "ten.local.toml")
-	local, err := config.LoadLocal(localPath)
+// loadBootstrap reads ten.state.json from its fixed $XDG_STATE_HOME
+// location and returns it along with the path it was read from (so
+// callers can save back to the same place). It errors if dotfiles_root
+// has never been set, i.e. `ten init` has not been run.
+func loadBootstrap(home string) (st state.State, statePath string, err error) {
+	statePath = filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+	st, err = state.Load(statePath)
 	if err != nil {
-		return config.Merged{}, false, err
+		return state.State{}, statePath, err
 	}
+	if st.DotfilesRoot == "" {
+		return state.State{}, statePath, fmt.Errorf("dotfiles_root is not set; run `ten init` inside your dotfiles repository")
+	}
+	return st, statePath, nil
+}
 
-	dotfilesRoot := expandHome(local.Core.DotfilesRoot, home)
-	base, baseFound, err := config.LoadRepo(filepath.Join(dotfilesRoot, "ten.toml"))
+// loadMerged loads ten.local.toml, ten.toml, and ten.<profile>.toml from
+// dotfilesRoot and returns the merged configuration. It is the single
+// source of truth for config loading shared by the apply and destroy
+// commands. repoFound reports whether any repository config file
+// (ten.toml or ten.<profile>.toml) was actually present; apply uses it as
+// a safety check (see checkDesiredState).
+func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound bool, err error) {
+	base, baseFound, err := config.LoadFile(filepath.Join(dotfilesRoot, "ten.toml"))
 	if err != nil {
 		return config.Merged{}, false, err
 	}
 	repoFound = baseFound
 
-	var profilePtr *config.Repo
-	if local.Core.Profile != "" {
-		profileRepo, ok, err := config.LoadRepo(filepath.Join(dotfilesRoot, "ten."+local.Core.Profile+".toml"))
+	var profilePtr *config.File
+	if profile != "" {
+		profileFile, ok, err := config.LoadFile(filepath.Join(dotfilesRoot, "ten."+profile+".toml"))
 		if err != nil {
 			return config.Merged{}, false, err
 		}
 		if ok {
-			profilePtr = &profileRepo
+			profilePtr = &profileFile
 			repoFound = true
 		}
 	}
 
-	merged, err = config.Merge(base, profilePtr, local)
+	localFile, localFound, err := config.LoadFile(filepath.Join(dotfilesRoot, "ten.local.toml"))
+	if err != nil {
+		return config.Merged{}, false, err
+	}
+	var localPtr *config.File
+	if localFound {
+		localPtr = &localFile
+	}
+
+	merged, err = config.Merge(base, profilePtr, localPtr)
 	if err != nil {
 		return config.Merged{}, false, err
 	}
@@ -49,27 +69,18 @@ func loadMerged(home string) (merged config.Merged, repoFound bool, err error) {
 }
 
 // checkDesiredState guards against a desired state that is empty by
-// accident rather than by intent (§4-④): an unset or missing
-// dotfiles_root, or a dotfiles root with no repo config in it at all.
-// Without this, `ten apply` on a machine where the dotfiles repo isn't
-// cloned yet would prune every managed resource.
+// accident rather than by intent (§4-④ of the original design doc): a
+// dotfiles root that no longer exists, or one with no repo config in it
+// at all. Without this, `ten apply` on a machine where the dotfiles repo
+// has been moved or deleted since `ten init` would prune every managed
+// resource.
 func checkDesiredState(merged config.Merged, repoFound bool) error {
-	if merged.DotfilesRoot == "" {
-		return fmt.Errorf("core.dotfiles_root is not set in ten.local.toml")
-	}
 	info, err := os.Stat(merged.DotfilesRoot)
 	if err != nil || !info.IsDir() {
-		return fmt.Errorf("core.dotfiles_root %s is not an existing directory", merged.DotfilesRoot)
+		return fmt.Errorf("dotfiles_root %s is not an existing directory", merged.DotfilesRoot)
 	}
 	if !repoFound {
 		return fmt.Errorf("no ten.toml or ten.<profile>.toml found under %s", merged.DotfilesRoot)
 	}
 	return nil
-}
-
-func expandHome(p, home string) string {
-	if strings.HasPrefix(p, "~/") {
-		return filepath.Join(home, strings.TrimPrefix(p, "~/"))
-	}
-	return p
 }
