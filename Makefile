@@ -4,7 +4,7 @@ GOLANGCI_LINT := bin/golangci-lint
 GOVULNCHECK_VERSION := v1.7.0
 GOVULNCHECK := bin/govulncheck
 
-.PHONY: build test lint fmt fmt-check vulncheck ci
+.PHONY: build test lint fmt fmt-check vulncheck ci check-tag
 
 build:
 	go build -o bin/ten ./cmd/ten
@@ -25,6 +25,11 @@ vulncheck: $(GOVULNCHECK)
 	$(GOVULNCHECK) ./...
 
 ci: build fmt-check lint vulncheck test
+
+# Usage: make check-tag TAG=v0.2.0
+check-tag:
+	@test -n "$(TAG)" || (echo "usage: make check-tag TAG=vX.Y.Z[-rc.N]" && exit 1)
+	go run ./cmd/checktag $(TAG)
 
 # Installed into a repo-local ./bin (not GOPATH/bin) so this doesn't
 # overwrite a golangci-lint version another project on the machine
