@@ -11,10 +11,8 @@ func TestApply_RunsPostApplyHook(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -41,10 +39,8 @@ func TestApply_RunsPreApplyHookBeforeLinks(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	// pre_apply writes the source file the link then points at; if the hook
 	// ran after the link (or not at all) the link source would be missing.
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
@@ -69,10 +65,8 @@ func TestApply_DryRunDoesNotExecuteHooks(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -96,10 +90,8 @@ func TestApply_HookFailureStopsRunFailFast(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.WriteFile(t, home+"/.config/ten/ten.local.toml", `
-[core]
-dotfiles_root = "`+home+`/dotfiles"
-`)
+	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
+	sb.Run(t, home, "init", "--path", home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 pre_apply = "exit 1"
