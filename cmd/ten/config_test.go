@@ -9,6 +9,7 @@ import (
 
 func TestLoadBootstrap_ErrorsWhenDotfilesRootUnset(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 
 	if _, _, err := loadBootstrap(home); err == nil {
 		t.Fatalf("expected an error when ten.state.json has no dotfiles_root")
@@ -17,6 +18,7 @@ func TestLoadBootstrap_ErrorsWhenDotfilesRootUnset(t *testing.T) {
 
 func TestLoadBootstrap_ReturnsStateWhenDotfilesRootSet(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 	statePath := filepath.Join(home, ".local", "state", "ten", "ten.state.json")
 	want := state.State{DotfilesRoot: "/home/taro/dotfiles", Profile: "work", ManagedResources: map[string]state.Resource{}}
 	if err := state.Save(statePath, want); err != nil {
