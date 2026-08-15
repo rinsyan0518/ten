@@ -48,3 +48,28 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 		t.Fatalf("resource mismatch: got %+v", got.ManagedResources)
 	}
 }
+
+func TestSaveThenLoad_RoundTripsBootstrapFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ten", "ten.state.json")
+
+	want := state.State{
+		DotfilesRoot:     "/home/taro/dotfiles",
+		Profile:          "work",
+		ManagedResources: map[string]state.Resource{},
+	}
+
+	if err := state.Save(path, want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := state.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.DotfilesRoot != want.DotfilesRoot {
+		t.Fatalf("DotfilesRoot mismatch: got %q want %q", got.DotfilesRoot, want.DotfilesRoot)
+	}
+	if got.Profile != want.Profile {
+		t.Fatalf("Profile mismatch: got %q want %q", got.Profile, want.Profile)
+	}
+}
