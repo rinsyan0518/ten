@@ -10,15 +10,21 @@ import (
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
+// statePathFor returns the fixed $XDG_STATE_HOME location of
+// ten.state.json for the given home directory.
+func statePathFor(home string) string {
+	return filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+}
+
 // loadBootstrap reads ten.state.json from its fixed $XDG_STATE_HOME
 // location and returns it along with the path it was read from (so
 // callers can save back to the same place). It errors if dotfiles_root
 // has never been set, i.e. `ten init` has not been run.
 func loadBootstrap(home string) (st state.State, statePath string, err error) {
-	statePath = filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+	statePath = statePathFor(home)
 	st, err = state.Load(statePath)
 	if err != nil {
-		return state.State{}, statePath, err
+		return state.State{}, statePath, fmt.Errorf("load state %s: %w", statePath, err)
 	}
 	if st.DotfilesRoot == "" {
 		return state.State{}, statePath, fmt.Errorf("dotfiles_root is not set; run `ten init` inside your dotfiles repository")
@@ -73,7 +79,9 @@ func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound b
 // dotfiles root that no longer exists, or one with no repo config in it
 // at all. Without this, `ten apply` on a machine where the dotfiles repo
 // has been moved or deleted since `ten init` would prune every managed
-// resource.
+// resource. This is apply-only — destroy deliberately doesn't call it,
+// since destroy should still be able to no-op cleanly (or clean up via
+// ten.state.json) even when dotfiles_root is gone.
 func checkDesiredState(merged config.Merged, repoFound bool) error {
 	info, err := os.Stat(merged.DotfilesRoot)
 	if err != nil || !info.IsDir() {

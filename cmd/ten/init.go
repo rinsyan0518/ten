@@ -21,7 +21,7 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&path, "path", "", "path to the dotfiles repository (defaults to the current directory)")
-	cmd.Flags().StringVar(&profile, "profile", "", "profile to activate (leaves the existing profile unchanged if omitted)")
+	cmd.Flags().StringVar(&profile, "profile", "", "profile to activate; leaves the existing profile unchanged if omitted, clears it if passed as an empty string")
 	return cmd
 }
 
@@ -36,23 +36,27 @@ func runInit(cmd *cobra.Command, path, profile string) error {
 		if err != nil {
 			return fmt.Errorf("init: resolve current directory: %w", err)
 		}
+	} else {
+		path = pathresolve.ExpandHome(path, home)
 	}
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("init: resolve path %s: %w", path, err)
 	}
-	if info, statErr := os.Stat(absPath); statErr != nil || !info.IsDir() {
+	if info, statErr := os.Stat(absPath); statErr != nil {
+		return fmt.Errorf("init: %s is not an existing directory: %w", absPath, statErr)
+	} else if !info.IsDir() {
 		return fmt.Errorf("init: %s is not an existing directory", absPath)
 	}
 
-	statePath := filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+	statePath := statePathFor(home)
 	st, err := state.Load(statePath)
 	if err != nil {
 		return fmt.Errorf("init: load state: %w", err)
 	}
 
 	st.DotfilesRoot = absPath
-	if profile != "" {
+	if cmd.Flags().Changed("profile") {
 		st.Profile = profile
 	}
 

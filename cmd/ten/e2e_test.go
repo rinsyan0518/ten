@@ -11,8 +11,7 @@ func TestApply_MultiToolDAGOrder(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles", "--profile", "work")
+	sb.Init(t, home, home+"/dotfiles", "work")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 enabled_tools = ["git"]
 
@@ -48,8 +47,7 @@ func TestApply_UnenabledToolIsNotApplied(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 enabled_tools = ["git"]
 
@@ -74,8 +72,7 @@ func TestApply_GroupedPlanOutputFormat(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -102,8 +99,7 @@ func TestApply_PrunesResourceRemovedFromConfig(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -142,8 +138,7 @@ func TestApply_PruneRestoresBackupInsteadOfDeleting(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -189,8 +184,7 @@ func TestApply_ConvertingLinkToTemplateDoesNotWriteThroughSymlink(t *testing.T) 
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.local.toml", `
 [vars]
 git_email = "taro@example.com"
@@ -244,8 +238,7 @@ func TestApply_PruneSkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -289,8 +282,7 @@ func TestDestroy_SkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -337,8 +329,7 @@ func TestApply_ErrorsWhenRepoConfigMissingInsteadOfPruningEverything(t *testing.
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -370,8 +361,7 @@ func TestApply_ErrorsWhenDotfilesRootDoesNotExist(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.Exec(t, "rm -rf "+home+"/dotfiles")
 
 	out, code := sb.Run(t, home, "apply")
@@ -383,12 +373,28 @@ func TestApply_ErrorsWhenDotfilesRootDoesNotExist(t *testing.T) {
 	}
 }
 
+func TestApply_ErrorsFriendlyWhenDotfilesRootIsAFile(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.Exec(t, "rm -rf "+home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles", "not a directory\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail when dotfiles_root is a file, got exit 0: %s", out)
+	}
+	if !strings.Contains(out, "is not an existing directory") {
+		t.Fatalf("expected a friendly \"is not an existing directory\" error, got a raw error instead: %s", out)
+	}
+}
+
 func TestApply_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git-work]
 templates = { "home:.gitconfig" = "git/.gitconfig.tmpl" }
@@ -428,8 +434,7 @@ func TestApply_HookFailureStopsLaterToolsFailFast(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	// aaa's pre_apply fails, so neither aaa's own link nor anything in the
 	// dependent tool zzz may be applied.
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
@@ -464,8 +469,7 @@ func TestApply_ReportsWhatWasAppliedBeforeAFailure(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	// aaa applies cleanly, then zzz fails on a missing template source.
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.aaa]
@@ -493,8 +497,7 @@ func TestCLI_RejectsUnexpectedPositionalArguments(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -530,12 +533,44 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	}
 }
 
+func TestInit_SandboxInitWithEmptyProfileClearsProfile(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles", "work")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+	if !strings.Contains(stateJSON, `"profile": "work"`) {
+		t.Fatalf("expected profile to be set to work, got: %s", stateJSON)
+	}
+
+	// An empty profile arg must round-trip through Sandbox.Run's shell
+	// quoting intact rather than being dropped, or --profile would be
+	// left without a value and cobra would fail to parse it.
+	sb.Init(t, home, home+"/dotfiles", "")
+	stateJSON = sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+	if strings.Contains(stateJSON, `"profile"`) {
+		t.Fatalf("expected profile to be cleared, got: %s", stateJSON)
+	}
+}
+
+func TestDestroy_NoOpsWhenDotfilesRootIsGoneAndNothingIsManaged(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.Exec(t, "rm -rf "+home+"/dotfiles")
+
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("expected destroy to no-op successfully when nothing is managed, even with dotfiles_root gone, got exit %d: %s", code, out)
+	}
+}
+
 func TestDestroy_RemovesManagedSymlink(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles", "work")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -558,14 +593,16 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if !strings.Contains(stateJSON, home+"/dotfiles") {
 		t.Fatalf("expected dotfiles_root to survive destroy in state, got: %s", stateJSON)
 	}
+	if !strings.Contains(stateJSON, `"profile": "work"`) {
+		t.Fatalf("expected profile to survive destroy in state, got: %s", stateJSON)
+	}
 }
 
 func TestDestroy_RestoresBackup(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -590,8 +627,7 @@ func TestDestroy_RestoresDirectoryBackup(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.nvim]
 links = { "xdg:nvim" = "nvim" }
@@ -628,8 +664,7 @@ func TestDestroy_RestoresBackupAfterSecondApply(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -663,8 +698,7 @@ func TestDestroy_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.a]
 links = { "home:.a" = "a/.a" }
@@ -733,8 +767,7 @@ func TestDestroy_PlanOutputGroupsAndNamesTheBackupSource(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -775,8 +808,7 @@ func TestDestroy_DryRunMakesNoChanges(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Exec(t, "mkdir -p "+home+"/dotfiles")
-	sb.Run(t, home, "init", "--path", home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
