@@ -38,11 +38,11 @@ func Resolve(env Env, key string) (string, error) {
 // ResolveKey resolves a prefixed key against home, reading
 // $XDG_CONFIG_HOME (falling back to home/.config) for the xdg: prefix.
 func ResolveKey(home, key string) (string, error) {
-	return Resolve(Env{Home: home, XDGConfigHome: XDGConfigHome(home)}, key)
+	return Resolve(Env{Home: home, XDGConfigHome: xdgConfigHome(home)}, key)
 }
 
-// XDGConfigHome returns $XDG_CONFIG_HOME, falling back to home/.config.
-func XDGConfigHome(home string) string {
+// xdgConfigHome returns $XDG_CONFIG_HOME, falling back to home/.config.
+func xdgConfigHome(home string) string {
 	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
 		return v
 	}
