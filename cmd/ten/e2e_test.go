@@ -373,6 +373,23 @@ func TestApply_ErrorsWhenDotfilesRootDoesNotExist(t *testing.T) {
 	}
 }
 
+func TestApply_ErrorsFriendlyWhenDotfilesRootIsAFile(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.Exec(t, "rm -rf "+home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles", "not a directory\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail when dotfiles_root is a file, got exit 0: %s", out)
+	}
+	if !strings.Contains(out, "is not an existing directory") {
+		t.Fatalf("expected a friendly \"is not an existing directory\" error, got a raw error instead: %s", out)
+	}
+}
+
 func TestApply_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()

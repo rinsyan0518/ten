@@ -39,6 +39,10 @@ func loadBootstrap(home string) (st state.State, statePath string, err error) {
 // (ten.toml or ten.<profile>.toml) was actually present; apply uses it as
 // a safety check (see checkDesiredState).
 func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound bool, err error) {
+	if info, statErr := os.Stat(dotfilesRoot); statErr != nil || !info.IsDir() {
+		return config.Merged{}, false, fmt.Errorf("dotfiles_root %s is not an existing directory", dotfilesRoot)
+	}
+
 	base, baseFound, err := config.LoadFile(filepath.Join(dotfilesRoot, "ten.toml"))
 	if err != nil {
 		return config.Merged{}, false, err
@@ -76,15 +80,12 @@ func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound b
 
 // checkDesiredState guards against a desired state that is empty by
 // accident rather than by intent (§4-④ of the original design doc): a
-// dotfiles root that no longer exists, or one with no repo config in it
-// at all. Without this, `ten apply` on a machine where the dotfiles repo
-// has been moved or deleted since `ten init` would prune every managed
+// dotfiles root with no repo config in it at all. (The dotfiles root's
+// own existence is already checked by loadMerged, which runs first.)
+// Without this, `ten apply` on a machine where the dotfiles repo has
+// been moved or deleted since `ten init` would prune every managed
 // resource.
 func checkDesiredState(merged config.Merged, repoFound bool) error {
-	info, err := os.Stat(merged.DotfilesRoot)
-	if err != nil || !info.IsDir() {
-		return fmt.Errorf("dotfiles_root %s is not an existing directory", merged.DotfilesRoot)
-	}
 	if !repoFound {
 		return fmt.Errorf("no ten.toml or ten.<profile>.toml found under %s", merged.DotfilesRoot)
 	}
