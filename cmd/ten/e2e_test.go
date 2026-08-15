@@ -537,7 +537,7 @@ func TestDestroy_RemovesManagedSymlink(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
 
-	sb.Init(t, home, home+"/dotfiles")
+	sb.Init(t, home, home+"/dotfiles", "work")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
@@ -559,6 +559,9 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/dotfiles") {
 		t.Fatalf("expected dotfiles_root to survive destroy in state, got: %s", stateJSON)
+	}
+	if !strings.Contains(stateJSON, `"profile": "work"`) {
+		t.Fatalf("expected profile to survive destroy in state, got: %s", stateJSON)
 	}
 }
 
