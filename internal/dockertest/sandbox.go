@@ -121,6 +121,21 @@ func (s *Sandbox) Run(t *testing.T, home string, args ...string) (stdout string,
 	return out, code
 }
 
+// Init creates root and runs `ten init --path root` (optionally with
+// --profile) inside the sandbox, failing the test if init exits
+// non-zero.
+func (s *Sandbox) Init(t *testing.T, home, root string, profile ...string) {
+	t.Helper()
+	s.Exec(t, "mkdir -p "+root)
+	args := []string{"init", "--path", root}
+	if len(profile) > 0 {
+		args = append(args, "--profile", profile[0])
+	}
+	if _, exitCode := s.Run(t, home, args...); exitCode != 0 {
+		t.Fatalf("dockertest: ten init --path %s failed with exit code %d", root, exitCode)
+	}
+}
+
 // WriteFile writes content to path inside the sandbox, creating parent
 // directories as needed.
 func (s *Sandbox) WriteFile(t *testing.T, path, content string) {
