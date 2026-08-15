@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -185,5 +186,28 @@ func TestInit_ErrorsWhenPathDoesNotExist(t *testing.T) {
 	cmd.SetArgs([]string{"init", "--path", filepath.Join(home, "does-not-exist")})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("expected init to fail for a nonexistent --path")
+	}
+}
+
+func TestInit_ErrorsWhenPathIsNotADirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// pathresolve.XDGStateHome checks $XDG_STATE_HOME before falling back
+	// to a home-derived default, so pin it explicitly — otherwise this
+	// test's isolation depends on the host shell not exporting
+	// XDG_STATE_HOME, which is not a safe assumption (this project is
+	// itself a dotfiles manager; a dev machine bootstrapped with it would
+	// have XDG_STATE_HOME set globally, diverging from `home`).
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	filePath := filepath.Join(home, "not-a-directory")
+	if err := os.WriteFile(filePath, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	cmd := newRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"init", "--path", filePath})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected init to fail when --path is not a directory")
 	}
 }

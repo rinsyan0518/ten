@@ -41,7 +41,9 @@ func runInit(cmd *cobra.Command, path, profile string) error {
 	if err != nil {
 		return fmt.Errorf("init: resolve path %s: %w", path, err)
 	}
-	if info, statErr := os.Stat(absPath); statErr != nil || !info.IsDir() {
+	if info, statErr := os.Stat(absPath); statErr != nil {
+		return fmt.Errorf("init: %s is not an existing directory: %w", absPath, statErr)
+	} else if !info.IsDir() {
 		return fmt.Errorf("init: %s is not an existing directory", absPath)
 	}
 
