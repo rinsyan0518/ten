@@ -3,11 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/rinsyan0518/ten/internal/apply"
-	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -32,18 +30,17 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("apply: resolve home dir: %w", err)
 	}
 
-	merged, repoFound, err := loadMerged(home)
+	current, statePath, err := loadBootstrap(home)
+	if err != nil {
+		return fmt.Errorf("apply: %w", err)
+	}
+
+	merged, repoFound, err := loadMerged(current.DotfilesRoot, current.Profile)
 	if err != nil {
 		return fmt.Errorf("apply: load config: %w", err)
 	}
 	if err := checkDesiredState(merged, repoFound); err != nil {
 		return fmt.Errorf("apply: %w", err)
-	}
-
-	statePath := filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
-	current, err := state.Load(statePath)
-	if err != nil {
-		return fmt.Errorf("apply: load state: %w", err)
 	}
 
 	result, newState, runErr := apply.Apply(apply.RunParams{
@@ -57,6 +54,12 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(result, dryRun))
 
 	if !dryRun {
+		// apply.Apply builds newState from scratch (ManagedResources only);
+		// it doesn't know about the bootstrap fields, so carry them over
+		// explicitly or a saved ten.state.json would lose dotfiles_root/
+		// profile after every apply, forcing a re-run of `ten init`.
+		newState.DotfilesRoot = current.DotfilesRoot
+		newState.Profile = current.Profile
 		newState.LastApplied = time.Now()
 		if saveErr := state.Save(statePath, newState); saveErr != nil && runErr == nil {
 			return fmt.Errorf("apply: save state: %w", saveErr)

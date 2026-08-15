@@ -17,14 +17,10 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func TestLoadLocal(t *testing.T) {
+func TestLoadFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ten.local.toml")
 	writeFile(t, path, `
-[core]
-dotfiles_root = "~/dotfiles"
-profile = "work"
-
 [vars]
 git_email = "taro@example.com"
 
@@ -32,12 +28,12 @@ git_email = "taro@example.com"
 links = { "home:.gitconfig" = "git/.gitconfig.local" }
 `)
 
-	got, err := LoadLocal(path)
+	got, ok, err := LoadFile(path)
 	if err != nil {
-		t.Fatalf("LoadLocal: %v", err)
+		t.Fatalf("LoadFile: %v", err)
 	}
-	if got.Core.DotfilesRoot != "~/dotfiles" || got.Core.Profile != "work" {
-		t.Fatalf("unexpected core: %+v", got.Core)
+	if !ok {
+		t.Fatalf("expected ok=true for an existing file")
 	}
 	if got.Vars["git_email"] != "taro@example.com" {
 		t.Fatalf("unexpected vars: %+v", got.Vars)
@@ -48,27 +44,26 @@ links = { "home:.gitconfig" = "git/.gitconfig.local" }
 	}
 }
 
-func TestLoadRepo_MissingFileIsOptional(t *testing.T) {
+func TestLoadFile_MissingFileIsOptional(t *testing.T) {
 	dir := t.TempDir()
-	repo, ok, err := LoadRepo(filepath.Join(dir, "does-not-exist.toml"))
+	file, ok, err := LoadFile(filepath.Join(dir, "does-not-exist.toml"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if ok {
 		t.Fatalf("expected ok=false for missing file")
 	}
-	if len(repo.Tools) != 0 {
-		t.Fatalf("expected empty Repo, got %+v", repo)
+	if len(file.Tools) != 0 {
+		t.Fatalf("expected empty File, got %+v", file)
 	}
 }
 
 func TestMerge_LocalOverridesRepoWholeTool(t *testing.T) {
-	repo := Repo{Tools: map[string]Tool{
+	repo := File{Tools: map[string]Tool{
 		"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, PostApply: "echo repo"},
 		"nvim": {Links: map[string]string{"xdg:nvim": "nvim"}},
 	}}
-	local := Local{
-		Core: Core{DotfilesRoot: "~/dotfiles"},
+	local := &File{
 		Vars: map[string]string{"k": "v"},
 		Tools: map[string]Tool{
 			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}},
@@ -80,9 +75,6 @@ func TestMerge_LocalOverridesRepoWholeTool(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got.DotfilesRoot != "~/dotfiles" {
-		t.Fatalf("unexpected DotfilesRoot: %q", got.DotfilesRoot)
-	}
 	wantGit := Tool{Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}}
 	if !reflect.DeepEqual(got.Tools["git"], wantGit) {
 		t.Fatalf("expected whole-tool replace, got %+v", got.Tools["git"])
@@ -93,13 +85,13 @@ func TestMerge_LocalOverridesRepoWholeTool(t *testing.T) {
 }
 
 func TestMerge_OverrideChainBaseProfileLocal(t *testing.T) {
-	base := Repo{Tools: map[string]Tool{
+	base := File{Tools: map[string]Tool{
 		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
 	}}
-	profile := &Repo{Tools: map[string]Tool{
+	profile := &File{Tools: map[string]Tool{
 		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.work"}},
 	}}
-	local := Local{Tools: map[string]Tool{
+	local := &File{Tools: map[string]Tool{
 		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}},
 	}}
 
@@ -113,24 +105,44 @@ func TestMerge_OverrideChainBaseProfileLocal(t *testing.T) {
 	}
 }
 
-func TestMerge_EnabledToolsFallsBackToAllWhenUndeclared(t *testing.T) {
-	base := Repo{Tools: map[string]Tool{"git": {}, "nvim": {}}}
-	got, err := Merge(base, nil, Local{})
+func TestMerge_VarsOverrideChainBaseProfileLocal(t *testing.T) {
+	base := File{Vars: map[string]string{"git_email": "base@example.com", "shared": "base"}}
+	profile := &File{Vars: map[string]string{"git_email": "profile@example.com"}}
+	local := &File{Vars: map[string]string{"git_email": "local@example.com"}}
+
+	got, err := Merge(base, profile, local)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !got.Enabled["git"] || !got.Enabled["nvim"] {
-		t.Fatalf("expected all tools enabled by fallback, got %+v", got.Enabled)
+	if got.Vars["git_email"] != "local@example.com" {
+		t.Fatalf("expected local to win vars override chain, got %q", got.Vars["git_email"])
+	}
+	if got.Vars["shared"] != "base" {
+		t.Fatalf("expected base-only var to survive, got %q", got.Vars["shared"])
+	}
+}
+
+func TestMerge_NilProfileAndLocalUseBaseOnly(t *testing.T) {
+	base := File{Tools: map[string]Tool{"git": {}}}
+	got, err := Merge(base, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := got.Tools["git"]; !ok {
+		t.Fatalf("expected base tool to survive with nil profile and local, got %+v", got.Tools)
+	}
+	if !got.Enabled["git"] {
+		t.Fatalf("expected git enabled by fallback, got %+v", got.Enabled)
 	}
 }
 
 func TestMerge_EnabledToolsUnionAcrossLayers(t *testing.T) {
-	base := Repo{
+	base := File{
 		EnabledTools: []string{"git"},
 		Tools:        map[string]Tool{"git": {}, "git-work": {}, "local-tool": {}},
 	}
-	profile := &Repo{EnabledTools: []string{"git-work"}}
-	local := Local{EnabledTools: []string{"local-tool"}, Tools: map[string]Tool{"local-tool": {}}}
+	profile := &File{EnabledTools: []string{"git-work"}}
+	local := &File{EnabledTools: []string{"local-tool"}, Tools: map[string]Tool{"local-tool": {}}}
 
 	got, err := Merge(base, profile, local)
 	if err != nil {
@@ -144,8 +156,8 @@ func TestMerge_EnabledToolsUnionAcrossLayers(t *testing.T) {
 }
 
 func TestMerge_EnabledToolsErrorsOnUndefinedTool(t *testing.T) {
-	base := Repo{EnabledTools: []string{"ghost"}, Tools: map[string]Tool{}}
-	if _, err := Merge(base, nil, Local{}); err == nil {
+	base := File{EnabledTools: []string{"ghost"}, Tools: map[string]Tool{}}
+	if _, err := Merge(base, nil, nil); err == nil {
 		t.Fatalf("expected error for enabled_tools referencing undefined tool")
 	}
 }

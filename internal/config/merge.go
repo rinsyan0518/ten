@@ -3,17 +3,19 @@ package config
 import "fmt"
 
 // Merge combines the base repo config, an optional profile-specific repo
-// config, and the local config into a single Merged configuration.
+// config, and an optional local config into a single Merged
+// configuration.
 //
-// [tools.*] definitions are combined with whole-tool replace, applied in
-// order base -> profile -> local (a later layer's definition of a tool
-// name fully replaces the earlier one).
+// [tools.*] and vars are both combined with layered key-level override,
+// applied in order base -> profile -> local (a later layer's value for a
+// given key fully replaces the earlier one; [tools.*] overrides by tool
+// name, vars overrides by var name).
 //
 // enabled_tools is resolved as the union of every EnabledTools list
 // declared (non-nil) across the three layers. If none of the three
 // layers declare enabled_tools, every defined tool is enabled (backward
 // compatible default).
-func Merge(base Repo, profile *Repo, local Local) (Merged, error) {
+func Merge(base File, profile *File, local *File) (Merged, error) {
 	tools := make(map[string]Tool)
 	for name, t := range base.Tools {
 		tools[name] = t
@@ -23,11 +25,32 @@ func Merge(base Repo, profile *Repo, local Local) (Merged, error) {
 			tools[name] = t
 		}
 	}
-	for name, t := range local.Tools {
-		tools[name] = t
+	if local != nil {
+		for name, t := range local.Tools {
+			tools[name] = t
+		}
 	}
 
-	declared := base.EnabledTools != nil || local.EnabledTools != nil ||
+	vars := make(map[string]string)
+	for k, v := range base.Vars {
+		vars[k] = v
+	}
+	if profile != nil {
+		for k, v := range profile.Vars {
+			vars[k] = v
+		}
+	}
+	if local != nil {
+		for k, v := range local.Vars {
+			vars[k] = v
+		}
+	}
+
+	var localEnabledTools []string
+	if local != nil {
+		localEnabledTools = local.EnabledTools
+	}
+	declared := base.EnabledTools != nil || localEnabledTools != nil ||
 		(profile != nil && profile.EnabledTools != nil)
 
 	enabled := make(map[string]bool)
@@ -53,15 +76,14 @@ func Merge(base Repo, profile *Repo, local Local) (Merged, error) {
 				return Merged{}, err
 			}
 		}
-		if err := addAll(local.EnabledTools); err != nil {
+		if err := addAll(localEnabledTools); err != nil {
 			return Merged{}, err
 		}
 	}
 
 	return Merged{
-		DotfilesRoot: local.Core.DotfilesRoot,
-		Vars:         local.Vars,
-		Tools:        tools,
-		Enabled:      enabled,
+		Vars:    vars,
+		Tools:   tools,
+		Enabled: enabled,
 	}, nil
 }
