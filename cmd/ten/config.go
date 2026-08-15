@@ -10,15 +10,21 @@ import (
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
+// statePathFor returns the fixed $XDG_STATE_HOME location of
+// ten.state.json for the given home directory.
+func statePathFor(home string) string {
+	return filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+}
+
 // loadBootstrap reads ten.state.json from its fixed $XDG_STATE_HOME
 // location and returns it along with the path it was read from (so
 // callers can save back to the same place). It errors if dotfiles_root
 // has never been set, i.e. `ten init` has not been run.
 func loadBootstrap(home string) (st state.State, statePath string, err error) {
-	statePath = filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+	statePath = statePathFor(home)
 	st, err = state.Load(statePath)
 	if err != nil {
-		return state.State{}, statePath, err
+		return state.State{}, statePath, fmt.Errorf("load state %s: %w", statePath, err)
 	}
 	if st.DotfilesRoot == "" {
 		return state.State{}, statePath, fmt.Errorf("dotfiles_root is not set; run `ten init` inside your dotfiles repository")

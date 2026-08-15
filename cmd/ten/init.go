@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -47,7 +46,7 @@ func runInit(cmd *cobra.Command, path, profile string) error {
 		return fmt.Errorf("init: %s is not an existing directory", absPath)
 	}
 
-	statePath := filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+	statePath := statePathFor(home)
 	st, err := state.Load(statePath)
 	if err != nil {
 		return fmt.Errorf("init: load state: %w", err)
