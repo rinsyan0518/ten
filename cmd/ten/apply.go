@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rinsyan0518/ten/internal/apply"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +40,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("apply: %w", err)
 	}
 
-	statePath := filepath.Join(home, ".config", "ten", "ten.state.json")
+	statePath := filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
 	current, err := state.Load(statePath)
 	if err != nil {
 		return fmt.Errorf("apply: load state: %w", err)

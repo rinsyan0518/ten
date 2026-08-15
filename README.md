@@ -31,9 +31,9 @@ go build -o ten ./cmd/ten
 
 | File | Location | Git-tracked | Role |
 |---|---|---|---|
-| `ten.local.toml` | `~/.config/ten/ten.local.toml` | No | Machine-local settings (`dotfiles_root`, `profile`, secret vars, etc.) |
+| `ten.local.toml` | `$XDG_CONFIG_HOME/ten/ten.local.toml` (falls back to `~/.config/ten/ten.local.toml`) | No | Machine-local settings (`dotfiles_root`, `profile`, secret vars, etc.) |
 | `ten.toml` / `ten.<profile>.toml` | `<dotfiles_root>/` | Yes | Desired state — which tools go where |
-| `ten.state.json` | `~/.config/ten/ten.state.json` | No | Auto-generated record of what `ten` currently manages |
+| `ten.state.json` | `$XDG_STATE_HOME/ten/ten.state.json` (falls back to `~/.local/state/ten/ten.state.json`) | No | Auto-generated record of what `ten` currently manages |
 
 ### 1. Create your machine-local config
 

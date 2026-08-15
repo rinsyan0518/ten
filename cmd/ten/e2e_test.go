@@ -190,7 +190,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if !strings.Contains(out, "+ restore backup") {
 		t.Fatalf("expected prune output to show a backup restore, got: %s", out)
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if strings.Contains(stateJSON, home+"/.oldrc") {
 		t.Fatalf("expected the pruned target to be dropped from state, got: %s", stateJSON)
 	}
@@ -293,7 +293,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if !strings.Contains(out, "warning") || !strings.Contains(out, home+"/.oldrc") {
 		t.Fatalf("expected a warning naming the skipped target, got: %s", out)
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.oldrc") {
 		t.Fatalf("expected the skipped target to stay tracked in state, got: %s", stateJSON)
 	}
@@ -330,7 +330,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if !strings.Contains(out, "warning") || !strings.Contains(out, home+"/.gitconfig") {
 		t.Fatalf("expected a warning naming the skipped target, got: %s", out)
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.gitconfig") {
 		t.Fatalf("expected the skipped target to stay tracked in state, got: %s", stateJSON)
 	}
@@ -383,7 +383,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if isLink, _, ok := sb.Lstat(t, home+"/.gitconfig"); !ok || !isLink {
 		t.Fatalf("expected the managed symlink to survive a misconfigured apply")
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.gitconfig") {
 		t.Fatalf("expected state to still track the resource, got: %s", stateJSON)
 	}
@@ -444,7 +444,7 @@ links = { "xdg:nvim" = "nvim" }
 	if isLink, _, ok := sb.Lstat(t, home+"/.config/nvim"); !ok || !isLink {
 		t.Fatalf("expected nvim symlink to still exist on disk after the failed apply")
 	}
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if !strings.Contains(stateJSON, home+"/.config/nvim") {
 		t.Fatalf("expected state to still track nvim's target after fail-fast, got: %s", stateJSON)
 	}
@@ -726,7 +726,7 @@ links = { "home:.c" = "c/.c" }
 	// through the run. Destroy order is the reverse of apply order
 	// (c, b, a): c is destroyed successfully first, b's restore then
 	// fails, and a is never reached.
-	stateJSON := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	sabotaged := strings.Replace(stateJSON,
 		`"source": "`+home+`/dotfiles/b/.b"`,
 		`"source": "`+home+`/dotfiles/b/.b",
@@ -736,7 +736,7 @@ links = { "home:.c" = "c/.c" }
 		t.Fatalf("failed to sabotage state.json: source line for b not found in %s", stateJSON)
 	}
 	// WriteFile's heredoc requires a trailing newline to terminate cleanly.
-	sb.WriteFile(t, home+"/.config/ten/ten.state.json", sabotaged+"\n")
+	sb.WriteFile(t, home+"/.local/state/ten/ten.state.json", sabotaged+"\n")
 
 	out, code := sb.Run(t, home, "destroy")
 	if code == 0 {
@@ -753,7 +753,7 @@ links = { "home:.c" = "c/.c" }
 		t.Fatalf("expected .a to remain untouched (not yet reached)")
 	}
 
-	finalState := sb.ReadFile(t, home+"/.config/ten/ten.state.json")
+	finalState := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	if strings.Contains(finalState, home+"/.c\"") {
 		t.Fatalf("expected .c to be dropped from state after successful removal, got: %s", finalState)
 	}

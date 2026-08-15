@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/rinsyan0518/ten/internal/apply"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +30,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("destroy: resolve home dir: %w", err)
 	}
-	statePath := filepath.Join(home, ".config", "ten", "ten.state.json")
+	statePath := filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
 
 	st, err := state.Load(statePath)
 	if err != nil {

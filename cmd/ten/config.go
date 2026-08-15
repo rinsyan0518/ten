@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rinsyan0518/ten/internal/config"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 )
 
 // loadMerged loads ten.local.toml and ten.toml under home and returns the
@@ -15,7 +16,7 @@ import (
 // whether any repository config file (ten.toml or ten.<profile>.toml) was
 // actually present; apply uses it as a safety check (see checkDesiredState).
 func loadMerged(home string) (merged config.Merged, repoFound bool, err error) {
-	localPath := filepath.Join(home, ".config", "ten", "ten.local.toml")
+	localPath := filepath.Join(pathresolve.XDGConfigHome(home), "ten", "ten.local.toml")
 	local, err := config.LoadLocal(localPath)
 	if err != nil {
 		return config.Merged{}, false, err
