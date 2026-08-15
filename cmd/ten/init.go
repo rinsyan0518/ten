@@ -1,0 +1,69 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/rinsyan0518/ten/internal/pathresolve"
+	"github.com/rinsyan0518/ten/internal/state"
+	"github.com/spf13/cobra"
+)
+
+func newInitCmd() *cobra.Command {
+	var path, profile string
+	cmd := &cobra.Command{
+		Use:   "init",
+		Args:  cobra.NoArgs,
+		Short: "Point ten at a dotfiles repository",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runInit(cmd, path, profile)
+		},
+	}
+	cmd.Flags().StringVar(&path, "path", "", "path to the dotfiles repository (defaults to the current directory)")
+	cmd.Flags().StringVar(&profile, "profile", "", "profile to activate (leaves the existing profile unchanged if omitted)")
+	return cmd
+}
+
+func runInit(cmd *cobra.Command, path, profile string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("init: resolve home dir: %w", err)
+	}
+
+	if path == "" {
+		path, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("init: resolve current directory: %w", err)
+		}
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("init: resolve path %s: %w", path, err)
+	}
+	if info, statErr := os.Stat(absPath); statErr != nil || !info.IsDir() {
+		return fmt.Errorf("init: %s is not an existing directory", absPath)
+	}
+
+	statePath := filepath.Join(pathresolve.XDGStateHome(home), "ten", "ten.state.json")
+	st, err := state.Load(statePath)
+	if err != nil {
+		return fmt.Errorf("init: load state: %w", err)
+	}
+
+	st.DotfilesRoot = absPath
+	if profile != "" {
+		st.Profile = profile
+	}
+
+	if err := state.Save(statePath, st); err != nil {
+		return fmt.Errorf("init: save state: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Initialized ten for %s", absPath)
+	if st.Profile != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), " (profile: %s)", st.Profile)
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
