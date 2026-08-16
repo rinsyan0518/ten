@@ -53,7 +53,7 @@ func Sort(merged config.Merged) ([]string, error) {
 	}
 	sort.Strings(queue)
 
-	order := make([]string, 0, len(merged.Enabled))
+	order := make([]string, 0, len(enabledTools))
 	for len(queue) > 0 {
 		n := queue[0]
 		queue = queue[1:]

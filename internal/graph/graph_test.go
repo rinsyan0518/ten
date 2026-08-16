@@ -65,3 +65,18 @@ func TestSort_ErrorsOnCycle(t *testing.T) {
 		t.Fatalf("expected error for cycle")
 	}
 }
+
+func TestSort_ExcludesExplicitlyDisabledTool(t *testing.T) {
+	merged := config.Merged{
+		Tools:   map[string]config.Tool{"git": {}, "nvim": {}},
+		Enabled: map[string]bool{"git": true, "nvim": false},
+	}
+
+	order, err := graph.Sort(merged)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(order) != 1 || order[0] != "git" {
+		t.Fatalf("expected only git in order, got %v", order)
+	}
+}
