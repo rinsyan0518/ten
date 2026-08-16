@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rinsyan0518/ten/internal/testutil/dockertest"
+	"github.com/rinsyan0518/ten/internal/testutil/tencli"
 )
 
 func TestApply_RunsPostApplyHook(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -35,7 +35,7 @@ post_apply = "echo HOOK_STDOUT && touch `+home+`/post-apply-marker"
 }
 
 func TestApply_RunsPreApplyHookBeforeLinks(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -60,7 +60,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_DryRunDoesNotExecuteHooks(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -84,7 +84,7 @@ post_apply = "touch `+home+`/post-apply-marker"
 }
 
 func TestApply_HookFailureStopsRunFailFast(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -105,7 +105,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_HookFailureStopsLaterToolsFailFast(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")

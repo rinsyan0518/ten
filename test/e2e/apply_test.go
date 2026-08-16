@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rinsyan0518/ten/internal/testutil/dockertest"
+	"github.com/rinsyan0518/ten/internal/testutil/tencli"
 )
 
 func TestApply_CreatesSymlinkForSingleTool(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -36,7 +36,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_BacksUpExistingFileBeforeLinking(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -68,7 +68,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_SecondRunIsIdempotent(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -96,7 +96,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_ErrorsWhenLinkSourceDoesNotExist(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -119,7 +119,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_DryRunMakesNoChanges(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -144,7 +144,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_MultiToolDAGOrder(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles", "work")
@@ -180,7 +180,7 @@ enabled = true
 }
 
 func TestApply_UnenabledToolIsNotApplied(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -204,7 +204,7 @@ links = { "xdg:nvim" = "nvim" }
 }
 
 func TestApply_GroupedPlanOutputFormat(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -231,7 +231,7 @@ links = { "xdg:nvim" = "nvim" }
 }
 
 func TestApply_PrunesResourceRemovedFromConfig(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -270,7 +270,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_PruneRestoresBackupInsteadOfDeleting(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -316,7 +316,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_ConvertingLinkToTemplateDoesNotWriteThroughSymlink(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -370,7 +370,7 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 }
 
 func TestApply_PruneSkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -414,7 +414,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_ErrorsWhenDotfilesRootIsUnset(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	out, code := sb.Run(t, home, "apply")
@@ -427,7 +427,7 @@ func TestApply_ErrorsWhenDotfilesRootIsUnset(t *testing.T) {
 }
 
 func TestApply_ErrorsWhenRepoConfigMissingInsteadOfPruningEverything(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -459,7 +459,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestApply_ErrorsWhenDotfilesRootDoesNotExist(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -475,7 +475,7 @@ func TestApply_ErrorsWhenDotfilesRootDoesNotExist(t *testing.T) {
 }
 
 func TestApply_ErrorsFriendlyWhenDotfilesRootIsAFile(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -492,7 +492,7 @@ func TestApply_ErrorsFriendlyWhenDotfilesRootIsAFile(t *testing.T) {
 }
 
 func TestApply_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -532,7 +532,7 @@ links = { "xdg:nvim" = "nvim" }
 }
 
 func TestApply_ReportsWhatWasAppliedBeforeAFailure(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")

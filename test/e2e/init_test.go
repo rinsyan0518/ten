@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rinsyan0518/ten/internal/testutil/dockertest"
+	"github.com/rinsyan0518/ten/internal/testutil/tencli"
 )
 
 func TestInit_SandboxInitWithEmptyProfileClearsProfile(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles", "work")

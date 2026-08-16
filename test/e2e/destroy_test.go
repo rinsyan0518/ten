@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rinsyan0518/ten/internal/testutil/dockertest"
+	"github.com/rinsyan0518/ten/internal/testutil/tencli"
 )
 
 func TestDestroy_SkipsTargetUserReplacedWithTheirOwnFile(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -42,7 +42,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestDestroy_NoOpsWhenDotfilesRootIsGoneAndNothingIsManaged(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -55,7 +55,7 @@ func TestDestroy_NoOpsWhenDotfilesRootIsGoneAndNothingIsManaged(t *testing.T) {
 }
 
 func TestDestroy_RemovesManagedSymlink(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles", "work")
@@ -87,7 +87,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestDestroy_RecoversManagedResourcesWhenDotfilesRootIsGone(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -116,7 +116,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestDestroy_RestoresBackup(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -141,7 +141,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestDestroy_RestoresDirectoryBackup(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -178,7 +178,7 @@ links = { "xdg:nvim" = "nvim" }
 }
 
 func TestDestroy_RestoresBackupAfterSecondApply(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -212,7 +212,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 }
 
 func TestDestroy_FailFastRetainsUntouchedResourcesInState(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -281,7 +281,7 @@ links = { "home:.c" = "c/.c" }
 }
 
 func TestDestroy_PlanOutputGroupsAndNamesTheBackupSource(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -322,7 +322,7 @@ links = { "xdg:nvim" = "nvim" }
 }
 
 func TestDestroy_DryRunMakesNoChanges(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
