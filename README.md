@@ -85,7 +85,6 @@ Keys in `links` / `templates` resolve to absolute paths using one of these prefi
 
 - `home:` → under `$HOME`
 - `xdg:` → under `$XDG_CONFIG_HOME` (falls back to `$HOME/.config`)
-- `custom:` → any absolute path (`~/` expansion supported)
 
 ### `[tools.*]`
 
