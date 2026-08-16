@@ -139,7 +139,6 @@ func TestMerge_NilProfileAndLocalUseBaseOnly(t *testing.T) {
 	}
 }
 
-
 func TestMerge_EnabledFalseInBaseDisablesToolByDefault(t *testing.T) {
 	disabled := false
 	base := File{Tools: map[string]Tool{"git-work": {Enabled: &disabled}}}
