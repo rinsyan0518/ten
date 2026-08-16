@@ -13,20 +13,14 @@ type Env struct {
 	XDGConfigHome string
 }
 
-// Resolve converts a prefixed key like "home:.gitconfig", "xdg:nvim", or
-// "custom:/etc/foo" into an absolute path.
+// Resolve converts a prefixed key like "home:.gitconfig" or "xdg:nvim" into
+// an absolute path.
 func Resolve(env Env, key string) (string, error) {
 	switch {
 	case strings.HasPrefix(key, "home:"):
 		return filepath.Join(env.Home, strings.TrimPrefix(key, "home:")), nil
 	case strings.HasPrefix(key, "xdg:"):
 		return filepath.Join(env.XDGConfigHome, strings.TrimPrefix(key, "xdg:")), nil
-	case strings.HasPrefix(key, "custom:"):
-		p := ExpandHome(strings.TrimPrefix(key, "custom:"), env.Home)
-		if !filepath.IsAbs(p) {
-			return "", fmt.Errorf("pathresolve: custom path must be absolute: %q", p)
-		}
-		return filepath.Clean(p), nil
 	default:
 		return "", fmt.Errorf("pathresolve: unknown prefix in key %q", key)
 	}

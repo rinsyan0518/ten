@@ -13,10 +13,6 @@ func TestResolve(t *testing.T) {
 	}{
 		{name: "home prefix", key: "home:.gitconfig", want: "/home/taro/.gitconfig"},
 		{name: "xdg prefix", key: "xdg:nvim", want: "/home/taro/.config/nvim"},
-		{name: "custom absolute", key: "custom:/etc/foo", want: "/etc/foo"},
-		{name: "custom tilde expansion", key: "custom:~/bin/foo", want: "/home/taro/bin/foo"},
-		{name: "custom bare tilde expansion", key: "custom:~", want: "/home/taro"},
-		{name: "custom relative path errors", key: "custom:relative/path", wantErr: true},
 		{name: "unknown prefix errors", key: "unknown:.foo", wantErr: true},
 	}
 
