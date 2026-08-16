@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml/badge.svg)](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml)
 
+English | [日本語](README.ja.md)
+
 `ten` is a Go CLI dotfiles manager.
 
 - **Idempotent** — running it repeatedly always converges to the same result
@@ -77,6 +79,27 @@ ten apply --dry-run   # preview what would change
 ten apply             # apply for real
 ```
 
+## How apply works
+
+`ten apply` resolves your config, orders tools by their dependencies, then runs each tool's hooks and resources in that order:
+
+```mermaid
+flowchart TD
+    A["ten.toml + ten.&lt;profile&gt;.toml + ten.local.toml"] --> B["Merge per field (layering)"]
+    B --> C["Keep enabled tools, resolve depends_on"]
+    C --> D["Topological sort → DAG order"]
+    D --> E["For each tool, in order:\npre_apply → links/templates → post_apply"]
+    E -->|hook exits non-zero| F["Stop immediately (fail-fast)\nlater tools do not run"]
+    E -->|all tools succeed| G["Done"]
+```
+
+Two details that aren't obvious from the config alone:
+
+- **Hooks always run for an enabled tool**, regardless of whether its `links`/`templates` actually changed, and even if the tool defines only hooks with no resources at all.
+- **A failing hook stops the whole run.** If `pre_apply` or `post_apply` exits non-zero, `ten apply` stops immediately — tools later in DAG order never run.
+
+Later sections cover dependency order, config layering, and hook execution in more detail.
+
 ## Configuration reference
 
 ### Target path prefixes
@@ -98,7 +121,51 @@ pre_apply  = "echo before"                                           # shell com
 post_apply = "echo after"                                            # shell command run after
 ```
 
-`[tools.*]` definitions are layered `ten.toml` → `ten.<profile>.toml` → `ten.local.toml`, merged **per field**: a later layer overrides only the fields it actually sets, leaving fields it leaves unset untouched from the earlier layer. `links` / `templates` / `depends_on` are each replaced as a whole when a later layer sets them at all (no per-key merging within a single field). `pre_apply` / `post_apply` treat an empty string as "not set," so a later layer can't explicitly clear a value set by an earlier layer. A leftover top-level `enabled_tools` key from before this field existed is silently ignored (not an error), which means every tool falls back to its default of enabled — if you're migrating an old config, delete `enabled_tools` and move each tool's on/off state into its own `[tools.*]` block's `enabled` field. If a tool's `depends_on` names a tool that ends up disabled, `ten apply` errors instead of silently skipping it — enable the dependency or remove it from `depends_on`.
+#### Dependency order
+
+`depends_on` orders tools with a topological sort: a tool always applies after everything it depends on. For example, `git-work` depending on `git` gives this apply order:
+
+```mermaid
+flowchart LR
+    git["git"] --> gitwork["git-work"]
+    git --> nvim["nvim"]
+```
+
+`git` applies first; `git-work` and `nvim` apply after it (their relative order to each other is unspecified). If a tool's `depends_on` names a tool that ends up disabled, `ten apply` errors instead of silently skipping it — enable the dependency or remove it from `depends_on`.
+
+#### Config layering
+
+`[tools.*]` definitions are layered `ten.toml` → `ten.<profile>.toml` → `ten.local.toml`:
+
+```mermaid
+flowchart LR
+    A["ten.toml\n(base)"] --> D["Merged [tools.*] config"]
+    B["ten.&lt;profile&gt;.toml\n(profile)"] --> D
+    C["ten.local.toml\n(local, gitignored)"] --> D
+```
+
+- **Per-field merge**: a later layer overrides only the fields it actually sets, leaving fields it leaves unset untouched from the earlier layer.
+- **`links` / `templates` / `depends_on` replace as a whole**: when a later layer sets one of these fields at all, it replaces the entire field (no per-key merging within a single field).
+- **`pre_apply` / `post_apply` treat an empty string as "not set"**: a later layer can't explicitly clear a value set by an earlier layer.
+- **Legacy `enabled_tools` is ignored**: a leftover top-level `enabled_tools` key from before this field existed is silently ignored (not an error), so every tool falls back to its default of `enabled = true`. If you're migrating an old config, delete `enabled_tools` and move each tool's on/off state into its own `[tools.*]` block's `enabled` field.
+
+#### Hook execution
+
+```mermaid
+flowchart TD
+    Start["Tool reached in DAG order"] --> Enabled{"Tool enabled?"}
+    Enabled -->|no| Skip["Skipped entirely — no hooks"]
+    Enabled -->|yes| Dry{"--dry-run?"}
+    Dry -->|yes| Plan["Hooks shown in the plan,\nnot executed"]
+    Dry -->|no| Pre["Run pre_apply"]
+    Pre -->|non-zero exit| Fail["Stop whole apply\n(fail-fast)"]
+    Pre -->|zero exit or unset| Res["Apply links / templates\n(runs even if unchanged)"]
+    Res --> Post["Run post_apply"]
+    Post -->|non-zero exit| Fail
+    Post -->|zero exit or unset| Next["Continue to next tool"]
+```
+
+`pre_apply` and `post_apply` run unconditionally for every enabled tool, in DAG order — even when the tool's resources didn't change, and even for a tool with hooks but no `links`/`templates`. Under `--dry-run`, hooks are shown in the plan but never executed. A non-zero exit stops `ten apply` immediately; tools later in DAG order do not run.
 
 Use `enabled` to turn a tool on or off per layer without repeating its other fields — e.g. define a tool disabled by default in `ten.toml` and flip it on for one profile:
 
@@ -128,6 +195,8 @@ ten destroy [--dry-run]                       Remove everything ten manages usin
 ```
 
 Neither `ten apply` nor `ten destroy` supports targeting individual tools — what gets applied or destroyed is controlled declaratively via each tool's `enabled` field.
+
+`ten destroy` never runs hooks — `depends_on` only orders hook execution during `apply`, and destroy ignores it entirely. It also doesn't delete `ten.state.json`: after removing or restoring every managed resource, it rewrites the file with an empty managed-resources record, keeping the bootstrap fields (`dotfiles_root`/`profile`) set by `ten init`.
 
 `ten init`'s `--profile` leaves the existing profile unchanged when omitted; pass `--profile ""` explicitly to clear it.
 
