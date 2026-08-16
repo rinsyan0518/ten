@@ -103,3 +103,38 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected no symlink to be created when the tool's pre_apply failed")
 	}
 }
+
+func TestApply_HookFailureStopsLaterToolsFailFast(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	// aaa's pre_apply fails, so neither aaa's own link nor anything in the
+	// dependent tool zzz may be applied.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.aaa]
+pre_apply = "exit 3"
+links = { "home:.aaa" = "a/.a" }
+
+[tools.zzz]
+depends_on = ["aaa"]
+links = { "home:.zzz" = "z/.z" }
+post_apply = "touch `+home+`/zzz-marker"
+`)
+	sb.WriteFile(t, home+"/dotfiles/a/.a", "a\n")
+	sb.WriteFile(t, home+"/dotfiles/z/.z", "z\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to fail when a pre_apply hook fails, got exit 0: %s", out)
+	}
+	if _, _, ok := sb.Lstat(t, home+"/.aaa"); ok {
+		t.Fatalf("expected aaa's link NOT to be created after its pre_apply failed")
+	}
+	if _, _, ok := sb.Lstat(t, home+"/.zzz"); ok {
+		t.Fatalf("expected the later tool zzz to never be applied (fail-fast)")
+	}
+	if _, _, ok := sb.Lstat(t, home+"/zzz-marker"); ok {
+		t.Fatalf("expected the later tool zzz's post_apply hook to never run (fail-fast)")
+	}
+}
