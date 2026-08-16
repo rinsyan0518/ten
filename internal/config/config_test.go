@@ -186,4 +186,7 @@ func TestMerge_EnabledUnsetInLaterLayerKeepsEarlierValue(t *testing.T) {
 	if got.Tools["git-work"].Links["home:.b"] != "b" {
 		t.Fatalf("expected profile's links to override base's, got %+v", got.Tools["git-work"].Links)
 	}
+	if _, ok := got.Tools["git-work"].Links["home:.a"]; ok {
+		t.Fatalf("expected base's links to be replaced wholesale, not merged per key, got %+v", got.Tools["git-work"].Links)
+	}
 }

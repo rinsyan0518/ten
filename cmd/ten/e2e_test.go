@@ -63,7 +63,7 @@ links = { "xdg:nvim" = "nvim" }
 		t.Fatalf("ten apply failed (exit %d): %s", code, out)
 	}
 	if _, _, ok := sb.Lstat(t, home+"/.config/nvim"); ok {
-		t.Fatalf("expected nvim to NOT be applied since it's not in enabled_tools")
+		t.Fatalf("expected nvim to NOT be applied since it has enabled = false")
 	}
 }
 

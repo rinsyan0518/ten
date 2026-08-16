@@ -10,7 +10,9 @@ import (
 // Sort computes a dependency-respecting execution order for the enabled
 // tools in merged, using each tool's DependsOn list.
 func Sort(merged config.Merged) ([]string, error) {
-	// Collect only enabled tools
+	// Merged.Enabled carries an explicit entry for every defined tool,
+	// including disabled ones, so its key set is not the enabled set —
+	// filter on the value here rather than ranging the map directly.
 	var enabledTools []string
 	for name, enabled := range merged.Enabled {
 		if enabled {
