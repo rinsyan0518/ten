@@ -58,7 +58,7 @@ func TestLoadFile_MissingFileIsOptional(t *testing.T) {
 	}
 }
 
-func TestMerge_LocalOverridesRepoWholeTool(t *testing.T) {
+func TestMerge_LocalOverridesRepoFieldLevel(t *testing.T) {
 	repo := File{Tools: map[string]Tool{
 		"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, PostApply: "echo repo"},
 		"nvim": {Links: map[string]string{"xdg:nvim": "nvim"}},
@@ -75,9 +75,12 @@ func TestMerge_LocalOverridesRepoWholeTool(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	wantGit := Tool{Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}}
+	wantGit := Tool{
+		Links:     map[string]string{"home:.gitconfig": "git/.gitconfig.local"},
+		PostApply: "echo repo",
+	}
 	if !reflect.DeepEqual(got.Tools["git"], wantGit) {
-		t.Fatalf("expected whole-tool replace, got %+v", got.Tools["git"])
+		t.Fatalf("expected field-level merge (links replaced, post_apply preserved from repo), got %+v", got.Tools["git"])
 	}
 	if _, ok := got.Tools["nvim"]; !ok {
 		t.Fatalf("expected nvim to survive merge untouched")
@@ -136,28 +139,54 @@ func TestMerge_NilProfileAndLocalUseBaseOnly(t *testing.T) {
 	}
 }
 
-func TestMerge_EnabledToolsUnionAcrossLayers(t *testing.T) {
-	base := File{
-		EnabledTools: []string{"git"},
-		Tools:        map[string]Tool{"git": {}, "git-work": {}, "local-tool": {}},
-	}
-	profile := &File{EnabledTools: []string{"git-work"}}
-	local := &File{EnabledTools: []string{"local-tool"}, Tools: map[string]Tool{"local-tool": {}}}
+func TestMerge_EnabledFalseInBaseDisablesToolByDefault(t *testing.T) {
+	disabled := false
+	base := File{Tools: map[string]Tool{"git-work": {Enabled: &disabled}}}
 
-	got, err := Merge(base, profile, local)
+	got, err := Merge(base, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, name := range []string{"git", "git-work", "local-tool"} {
-		if !got.Enabled[name] {
-			t.Fatalf("expected %q enabled, got %+v", name, got.Enabled)
-		}
+	if got.Enabled["git-work"] {
+		t.Fatalf("expected git-work disabled via base's enabled=false, got %+v", got.Enabled)
 	}
 }
 
-func TestMerge_EnabledToolsErrorsOnUndefinedTool(t *testing.T) {
-	base := File{EnabledTools: []string{"ghost"}, Tools: map[string]Tool{}}
-	if _, err := Merge(base, nil, nil); err == nil {
-		t.Fatalf("expected error for enabled_tools referencing undefined tool")
+func TestMerge_EnabledTrueInProfileOverridesFalseInBase(t *testing.T) {
+	disabled := false
+	enabled := true
+	base := File{Tools: map[string]Tool{"git-work": {Enabled: &disabled}}}
+	profile := &File{Tools: map[string]Tool{"git-work": {Enabled: &enabled}}}
+
+	got, err := Merge(base, profile, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.Enabled["git-work"] {
+		t.Fatalf("expected profile's enabled=true to override base's enabled=false, got %+v", got.Enabled)
+	}
+}
+
+func TestMerge_EnabledUnsetInLaterLayerKeepsEarlierValue(t *testing.T) {
+	disabled := false
+	base := File{Tools: map[string]Tool{
+		"git-work": {Enabled: &disabled, Links: map[string]string{"home:.a": "a"}},
+	}}
+	profile := &File{Tools: map[string]Tool{
+		"git-work": {Links: map[string]string{"home:.b": "b"}},
+	}}
+
+	got, err := Merge(base, profile, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Enabled["git-work"] {
+		t.Fatalf("expected base's enabled=false to survive when profile leaves enabled unset, got %+v", got.Enabled)
+	}
+	if got.Tools["git-work"].Links["home:.b"] != "b" {
+		t.Fatalf("expected profile's links to override base's, got %+v", got.Tools["git-work"].Links)
+	}
+	if _, ok := got.Tools["git-work"].Links["home:.a"]; ok {
+		t.Fatalf("expected base's links to be replaced wholesale, not merged per key, got %+v", got.Tools["git-work"].Links)
 	}
 }

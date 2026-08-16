@@ -13,17 +13,17 @@ func TestApply_MultiToolDAGOrder(t *testing.T) {
 
 	sb.Init(t, home, home+"/dotfiles", "work")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
-enabled_tools = ["git"]
-
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
 
 [tools.git-work]
+enabled    = false
 depends_on = ["git"]
 links = { "home:.gitconfig.local" = "git/.gitconfig.work" }
 `)
 	sb.WriteFile(t, home+"/dotfiles/ten.work.toml", `
-enabled_tools = ["git-work"]
+[tools.git-work]
+enabled = true
 `)
 	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
 	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig.work", "work\n")
@@ -49,12 +49,11 @@ func TestApply_UnenabledToolIsNotApplied(t *testing.T) {
 
 	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
-enabled_tools = ["git"]
-
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
 
 [tools.nvim]
+enabled = false
 links = { "xdg:nvim" = "nvim" }
 `)
 	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
@@ -64,7 +63,7 @@ links = { "xdg:nvim" = "nvim" }
 		t.Fatalf("ten apply failed (exit %d): %s", code, out)
 	}
 	if _, _, ok := sb.Lstat(t, home+"/.config/nvim"); ok {
-		t.Fatalf("expected nvim to NOT be applied since it's not in enabled_tools")
+		t.Fatalf("expected nvim to NOT be applied since it has enabled = false")
 	}
 }
 

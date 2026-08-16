@@ -47,8 +47,6 @@ ten init                                    # dotfiles_root defaults to the curr
 
 ```toml
 # ~/dotfiles/ten.toml
-enabled_tools = ["git", "nvim"]
-
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
 
@@ -93,6 +91,7 @@ Keys in `links` / `templates` resolve to absolute paths using one of these prefi
 
 ```toml
 [tools.git-work]
+enabled    = false                                                   # defaults to true when omitted
 depends_on = ["git"]                                                 # applied after its dependencies, in DAG order
 links     = { "home:.gitconfig" = "git/.gitconfig" }                 # symlinks
 templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" } # rendered via text/template ({{ .Vars.key }})
@@ -100,21 +99,26 @@ pre_apply  = "echo before"                                           # shell com
 post_apply = "echo after"                                            # shell command run after
 ```
 
-### `enabled_tools`
+`[tools.*]` definitions are layered `ten.toml` → `ten.<profile>.toml` → `ten.local.toml`, merged **per field**: a later layer overrides only the fields it actually sets, leaving fields it leaves unset untouched from the earlier layer. `links` / `templates` / `depends_on` are each replaced as a whole when a later layer sets them at all (no per-key merging within a single field). `pre_apply` / `post_apply` treat an empty string as "not set," so a later layer can't explicitly clear a value set by an earlier layer. A leftover top-level `enabled_tools` key from before this field existed is silently ignored (not an error), which means every tool falls back to its default of enabled — if you're migrating an old config, delete `enabled_tools` and move each tool's on/off state into its own `[tools.*]` block's `enabled` field. If a tool's `depends_on` names a tool that ends up disabled, `ten apply` errors instead of silently skipping it — enable the dependency or remove it from `depends_on`.
 
-Can be declared in `ten.toml`, `ten.<profile>.toml`, and/or `ten.local.toml` — the final enabled set is the union across all of them. If none of them declare it, every defined tool is enabled by default (backward-compatible fallback).
+Use `enabled` to turn a tool on or off per layer without repeating its other fields — e.g. define a tool disabled by default in `ten.toml` and flip it on for one profile:
 
 ```toml
 # ten.toml (common, always loaded)
-enabled_tools = ["git", "nvim"]
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+
+[tools.git-work]
+enabled    = false
+depends_on = ["git"]
+templates  = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 
 # ten.work.toml (loaded only when profile = "work")
-enabled_tools = ["git-work"]
+[tools.git-work]
+enabled = true
 ```
 
-`[tools.*]` definitions themselves are layered `ten.toml` → `ten.<profile>.toml` → `ten.local.toml`, with each layer fully replacing a same-named tool (whole-tool replace, no field-level merging).
-
-`vars` follows the same layering (`ten.toml` → `ten.<profile>.toml` → `ten.local.toml`) but merges per variable key rather than per tool: a variable declared in a later layer overrides only that one key, leaving variables declared solely in earlier layers untouched.
+`vars` follows the same base → profile → local layering but merges per variable key rather than per tool: a variable declared in a later layer overrides only that one key, leaving variables declared solely in earlier layers untouched.
 
 ## Commands
 
@@ -124,7 +128,7 @@ ten apply [--dry-run]                         Apply every tool resolved by the c
 ten destroy [--dry-run]                       Remove everything ten manages, in reverse order (restoring backups where they exist)
 ```
 
-Neither `ten apply` nor `ten destroy` supports targeting individual tools — what gets applied or destroyed is controlled declaratively via `enabled_tools`.
+Neither `ten apply` nor `ten destroy` supports targeting individual tools — what gets applied or destroyed is controlled declaratively via each tool's `enabled` field.
 
 `ten init`'s `--profile` leaves the existing profile unchanged when omitted; pass `--profile ""` explicitly to clear it.
 

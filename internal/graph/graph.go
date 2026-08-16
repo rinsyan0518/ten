@@ -10,7 +10,17 @@ import (
 // Sort computes a dependency-respecting execution order for the enabled
 // tools in merged, using each tool's DependsOn list.
 func Sort(merged config.Merged) ([]string, error) {
-	for name := range merged.Enabled {
+	// Merged.Enabled carries an explicit entry for every defined tool,
+	// including disabled ones, so its key set is not the enabled set —
+	// filter on the value here rather than ranging the map directly.
+	var enabledTools []string
+	for name, enabled := range merged.Enabled {
+		if enabled {
+			enabledTools = append(enabledTools, name)
+		}
+	}
+
+	for _, name := range enabledTools {
 		tool, ok := merged.Tools[name]
 		if !ok {
 			return nil, fmt.Errorf("graph: enabled tool %q has no definition", name)
@@ -25,12 +35,12 @@ func Sort(merged config.Merged) ([]string, error) {
 		}
 	}
 
-	inDegree := make(map[string]int, len(merged.Enabled))
-	dependents := make(map[string][]string, len(merged.Enabled))
-	for name := range merged.Enabled {
+	inDegree := make(map[string]int, len(enabledTools))
+	dependents := make(map[string][]string, len(enabledTools))
+	for _, name := range enabledTools {
 		inDegree[name] = 0
 	}
-	for name := range merged.Enabled {
+	for _, name := range enabledTools {
 		for _, dep := range merged.Tools[name].DependsOn {
 			dependents[dep] = append(dependents[dep], name)
 			inDegree[name]++
@@ -38,14 +48,14 @@ func Sort(merged config.Merged) ([]string, error) {
 	}
 
 	var queue []string
-	for name := range merged.Enabled {
+	for _, name := range enabledTools {
 		if inDegree[name] == 0 {
 			queue = append(queue, name)
 		}
 	}
 	sort.Strings(queue)
 
-	order := make([]string, 0, len(merged.Enabled))
+	order := make([]string, 0, len(enabledTools))
 	for len(queue) > 0 {
 		n := queue[0]
 		queue = queue[1:]
@@ -62,7 +72,7 @@ func Sort(merged config.Merged) ([]string, error) {
 		}
 	}
 
-	if len(order) != len(merged.Enabled) {
+	if len(order) != len(enabledTools) {
 		return nil, fmt.Errorf("graph: dependency cycle detected among enabled tools")
 	}
 	return order, nil
