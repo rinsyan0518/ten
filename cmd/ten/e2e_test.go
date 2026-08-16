@@ -597,6 +597,35 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	}
 }
 
+func TestDestroy_RecoversManagedResourcesWhenDotfilesRootIsGone(t *testing.T) {
+	sb := dockertest.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+
+	if _, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed")
+	}
+
+	// Simulate the disaster-recovery scenario this feature exists for: the
+	// dotfiles repository (and therefore ten.toml) is gone, but
+	// ten.state.json under $XDG_STATE_HOME still knows what's managed.
+	sb.Exec(t, "rm -rf "+home+"/dotfiles")
+
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("expected destroy to succeed without a readable config, got exit %d: %s", code, out)
+	}
+	if _, _, ok := sb.Lstat(t, home+"/.gitconfig"); ok {
+		t.Fatalf("expected .gitconfig to be removed by destroy even though dotfiles_root is gone")
+	}
+}
+
 func TestDestroy_RestoresBackup(t *testing.T) {
 	sb := dockertest.NewSandbox(t)
 	home := sb.Home()
@@ -720,9 +749,9 @@ links = { "home:.c" = "c/.c" }
 
 	// Sabotage b's tracked resource with a backup_path that doesn't exist
 	// on disk, so destroy's restore-from-backup step for b fails partway
-	// through the run. Destroy order is the reverse of apply order
-	// (c, b, a): c is destroyed successfully first, b's restore then
-	// fails, and a is never reached.
+	// through the run. Destroy order is deterministic alphabetical order
+	// by tool name (a, b, c): a is destroyed successfully first, b's
+	// restore then fails, and c is never reached.
 	stateJSON := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
 	sabotaged := strings.Replace(stateJSON,
 		`"source": "`+home+`/dotfiles/b/.b"`,
@@ -740,25 +769,25 @@ links = { "home:.c" = "c/.c" }
 		t.Fatalf("expected destroy to fail, got exit 0: %s", out)
 	}
 
-	if _, _, ok := sb.Lstat(t, home+"/.c"); ok {
-		t.Fatalf("expected .c to be removed before the failure")
+	if _, _, ok := sb.Lstat(t, home+"/.a"); ok {
+		t.Fatalf("expected .a to be removed before the failure")
 	}
 	if isLink, _, ok := sb.Lstat(t, home+"/.b"); !ok || !isLink {
 		t.Fatalf("expected .b to remain a symlink after its failed restore")
 	}
-	if isLink, _, ok := sb.Lstat(t, home+"/.a"); !ok || !isLink {
-		t.Fatalf("expected .a to remain untouched (not yet reached)")
+	if isLink, _, ok := sb.Lstat(t, home+"/.c"); !ok || !isLink {
+		t.Fatalf("expected .c to remain untouched (not yet reached)")
 	}
 
 	finalState := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
-	if strings.Contains(finalState, home+"/.c\"") {
-		t.Fatalf("expected .c to be dropped from state after successful removal, got: %s", finalState)
+	if strings.Contains(finalState, home+"/.a\"") {
+		t.Fatalf("expected .a to be dropped from state after successful removal, got: %s", finalState)
 	}
 	if !strings.Contains(finalState, home+"/.b\"") {
 		t.Fatalf("expected .b to still be tracked in state after its failed removal, got: %s", finalState)
 	}
-	if !strings.Contains(finalState, home+"/.a\"") {
-		t.Fatalf("expected .a to still be tracked in state (never reached), got: %s", finalState)
+	if !strings.Contains(finalState, home+"/.c\"") {
+		t.Fatalf("expected .c to still be tracked in state (never reached), got: %s", finalState)
 	}
 }
 
