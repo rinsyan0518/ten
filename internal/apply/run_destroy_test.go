@@ -6,31 +6,32 @@ import (
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/apply"
-	"github.com/rinsyan0518/ten/internal/config"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
-func TestDestroy_RemovesInReverseDependencyOrder(t *testing.T) {
-	merged := config.Merged{
-		Tools: map[string]config.Tool{
-			"git":      {},
-			"git-work": {DependsOn: []string{"git"}},
-		},
-	}
+func TestDestroy_RemovesInDeterministicToolAndTargetOrder(t *testing.T) {
+	// No depends_on relationship exists between these tools at all — destroy
+	// no longer reads config, so there is nothing to express one with. Order
+	// is purely alphabetical: tool name, then target name within a tool.
 	current := state.State{ManagedResources: map[string]state.Resource{
-		"/home/taro/.gitconfig":       {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
-		"/home/taro/.gitconfig.local": {Tool: "git-work", Type: "symlink", Source: "/dotfiles/git-work/.gitconfig.local"},
+		"/home/taro/.zshrc":     {Tool: "zsh", Type: "symlink", Source: "/dotfiles/zsh/.zshrc"},
+		"/home/taro/.gitignore": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitignore"},
+		"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
 	}}
 
 	fx := &fakeExecutor{}
 	result, newState, err := apply.Destroy(apply.DestroyParams{
-		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result.Outcomes) != 2 || result.Outcomes[0].Tool != "git-work" || result.Outcomes[1].Tool != "git" {
-		t.Fatalf("expected git-work destroyed before git, got %+v", result.Outcomes)
+	if len(result.Outcomes) != 2 || result.Outcomes[0].Tool != "git" || result.Outcomes[1].Tool != "zsh" {
+		t.Fatalf("expected tools destroyed in alphabetical order (git, zsh), got %+v", result.Outcomes)
+	}
+	gitTargets := result.Outcomes[0].Entries
+	if len(gitTargets) != 2 || gitTargets[0].Result.Target != "/home/taro/.gitconfig" || gitTargets[1].Result.Target != "/home/taro/.gitignore" {
+		t.Fatalf("expected git's targets destroyed in alphabetical order (.gitconfig, .gitignore), got %+v", gitTargets)
 	}
 	if len(newState.ManagedResources) != 0 {
 		t.Fatalf("expected all resources removed from state, got %+v", newState.ManagedResources)
@@ -38,7 +39,6 @@ func TestDestroy_RemovesInReverseDependencyOrder(t *testing.T) {
 }
 
 func TestDestroy_StopsOnUnlinkFailureAndKeepsPartialResult(t *testing.T) {
-	merged := config.Merged{Tools: map[string]config.Tool{"git": {}, "nvim": {}}}
 	current := state.State{ManagedResources: map[string]state.Resource{
 		"/home/taro/.gitconfig":   {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
 		"/home/taro/.config/nvim": {Tool: "nvim", Type: "symlink", Source: "/dotfiles/nvim"},
@@ -46,28 +46,27 @@ func TestDestroy_StopsOnUnlinkFailureAndKeepsPartialResult(t *testing.T) {
 	unlinkErr := errors.New("boom")
 	fx := &fakeExecutor{
 		UnlinkFunc: func(req apply.UnlinkRequest, dryRun bool) (apply.UnlinkResult, error) {
-			if req.Target == "/home/taro/.gitconfig" {
+			if req.Target == "/home/taro/.config/nvim" {
 				return apply.UnlinkResult{}, unlinkErr
 			}
 			return apply.UnlinkResult{Target: req.Target}, nil
 		},
 	}
 
-	// No depends_on between git and nvim, so DestroyOrder (reverse of the
-	// alphabetical forward order) visits nvim before git.
+	// Deterministic order is alphabetical by tool name, so git (succeeds) is
+	// processed before nvim (fails).
 	result, _, err := apply.Destroy(apply.DestroyParams{
-		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
 	})
 	if err == nil || !errors.Is(err, unlinkErr) {
 		t.Fatalf("expected error wrapping %v, got %v", unlinkErr, err)
 	}
-	if len(result.Outcomes) != 1 || result.Outcomes[0].Tool != "nvim" {
-		t.Fatalf("expected nvim's outcome kept before git failed, got %+v", result.Outcomes)
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Tool != "git" {
+		t.Fatalf("expected git's outcome kept before nvim failed, got %+v", result.Outcomes)
 	}
 }
 
 func TestDestroy_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
-	merged := config.Merged{Tools: map[string]config.Tool{"git": {}}}
 	current := state.State{ManagedResources: map[string]state.Resource{
 		"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
 	}}
@@ -79,7 +78,7 @@ func TestDestroy_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
 		},
 	}
 	_, newState, err := apply.Destroy(apply.DestroyParams{
-		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, DryRun: true, Executor: fx,
+		Current: current, Home: "/home/taro", Out: io.Discard, DryRun: true, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

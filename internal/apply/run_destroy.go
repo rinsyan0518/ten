@@ -5,14 +5,11 @@ import (
 	"io"
 	"sort"
 
-	"github.com/rinsyan0518/ten/internal/config"
-	"github.com/rinsyan0518/ten/internal/plan"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
 // DestroyParams configures a single ten destroy run.
 type DestroyParams struct {
-	Merged   config.Merged
 	Current  state.State
 	Home     string // unused by Destroy itself; kept for symmetry with RunParams
 	DryRun   bool
@@ -42,32 +39,27 @@ type DestroyResult struct {
 	Outcomes []DestroyOutcome
 }
 
-// Destroy removes every resource recorded in p.Current, in reverse
-// dependency order (the mirror of Apply's order). It always returns the
-// DestroyResult and state.State reflecting everything actually removed
-// or restored so far, even when it returns a non-nil error (fail-fast).
-// Destroy performs no state I/O; the caller is responsible for loading
-// Current and saving the returned state.State. Destroy does not update
-// state.State.LastApplied.
+// Destroy removes every resource recorded in p.Current, in a
+// deterministic order (tool name, then target name within a tool) derived
+// entirely from p.Current — it reads no config. That's safe because
+// Destroy never runs hooks (the only thing depends_on orders) and every
+// Unlink call is independent of every other tool's state. It always
+// returns the DestroyResult and state.State reflecting everything
+// actually removed or restored so far, even when it returns a non-nil
+// error (fail-fast). Destroy performs no state I/O; the caller is
+// responsible for loading Current and saving the returned state.State.
+// Destroy does not update state.State.LastApplied.
 func Destroy(p DestroyParams) (DestroyResult, state.State, error) {
-	managed := make(map[string]bool, len(p.Current.ManagedResources))
 	byTool := make(map[string][]string)
 	for target, res := range p.Current.ManagedResources {
-		managed[res.Tool] = true
 		byTool[res.Tool] = append(byTool[res.Tool], target)
 	}
-	// p.Current.ManagedResources is a map, so byTool's slices are built in
-	// a nondeterministic order; sort them for a reproducible destroy order
-	// per tool (same convention as plan.Desired's link/template key
-	// sorting).
+	tools := make([]string, 0, len(byTool))
 	for tool := range byTool {
 		sort.Strings(byTool[tool])
+		tools = append(tools, tool)
 	}
-
-	order, err := plan.DestroyOrder(p.Merged.Tools, managed)
-	if err != nil {
-		return DestroyResult{}, p.Current, fmt.Errorf("destroy: %w", err)
-	}
+	sort.Strings(tools)
 
 	out := p.Out
 	if out == nil {
@@ -80,7 +72,7 @@ func Destroy(p DestroyParams) (DestroyResult, state.State, error) {
 	}
 
 	var outcomes []DestroyOutcome
-	for _, tool := range order {
+	for _, tool := range tools {
 		outcome := DestroyOutcome{Tool: tool}
 		for _, target := range byTool[tool] {
 			res := p.Current.ManagedResources[target]

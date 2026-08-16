@@ -125,7 +125,7 @@ enabled = true
 ```
 ten init [--path <path>] [--profile <name>]   Point ten at a dotfiles repository (--path defaults to the current directory)
 ten apply [--dry-run]                         Apply every tool resolved by the current profile, in DAG order
-ten destroy [--dry-run]                       Remove everything ten manages, in reverse order (restoring backups where they exist)
+ten destroy [--dry-run]                       Remove everything ten manages using ten.state.json only (no config required), restoring backups where they exist
 ```
 
 Neither `ten apply` nor `ten destroy` supports targeting individual tools — what gets applied or destroyed is controlled declaratively via each tool's `enabled` field.

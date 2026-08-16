@@ -34,13 +34,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("destroy: %w", err)
 	}
 
-	merged, _, err := loadMerged(st.DotfilesRoot, st.Profile)
-	if err != nil {
-		return fmt.Errorf("destroy: load config: %w", err)
-	}
-
 	result, remaining, runErr := apply.Destroy(apply.DestroyParams{
-		Merged:   merged,
 		Current:  st,
 		Home:     home,
 		DryRun:   dryRun,
