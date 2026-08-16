@@ -46,7 +46,7 @@ func startSharedContainer() (testcontainers.Container, error) {
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			// Every caller is a package two directories under the repo root
-			// (cmd/ten, internal/apply, internal/dockertest), and Go test
+			// (test/e2e, internal/apply, internal/dockertest), and Go test
 			// binaries run with their package directory as the working
 			// directory.
 			Context:    "../..",
