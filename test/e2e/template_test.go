@@ -1,14 +1,14 @@
-package main_test
+package e2e_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/rinsyan0518/ten/internal/dockertest"
+	"github.com/rinsyan0518/ten/internal/testutil/tencli"
 )
 
 func TestApply_RendersTemplateWithVars(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -38,7 +38,7 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 }
 
 func TestApply_TemplateBacksUpExistingFile(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
@@ -64,7 +64,7 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 }
 
 func TestApply_TemplateSecondRunDoesNotReBackup(t *testing.T) {
-	sb := dockertest.NewSandbox(t)
+	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
 	sb.Init(t, home, home+"/dotfiles")
