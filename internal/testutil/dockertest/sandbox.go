@@ -24,14 +24,30 @@ var (
 	sharedContainer testcontainers.Container
 	sharedOnce      sync.Once
 	sharedErr       error
+	sharedConfig    Config
 )
+
+// Config configures the Docker build used for the shared sandbox
+// container. Context and Dockerfile are resolved relative to the
+// directory of the test binary's package, so each caller must supply
+// its own path back to the repo root.
+type Config struct {
+	Context    string
+	Dockerfile string
+}
 
 // RunWithSharedContainer runs m and then, if any test called NewSandbox,
 // terminates the shared container it started. Call it from a package's
 // TestMain:
 //
-//	func TestMain(m *testing.M) { os.Exit(dockertest.RunWithSharedContainer(m)) }
-func RunWithSharedContainer(m *testing.M) int {
+//	func TestMain(m *testing.M) {
+//		os.Exit(dockertest.RunWithSharedContainer(m, dockertest.Config{
+//			Context:    "../..",
+//			Dockerfile: "Dockerfile.test",
+//		}))
+//	}
+func RunWithSharedContainer(m *testing.M, cfg Config) int {
+	sharedConfig = cfg
 	code := m.Run()
 
 	if sharedContainer != nil {
@@ -45,12 +61,8 @@ func RunWithSharedContainer(m *testing.M) int {
 func startSharedContainer() (testcontainers.Container, error) {
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
-			// Every caller is a package two directories under the repo root
-			// (test/e2e, internal/apply, internal/dockertest), and Go test
-			// binaries run with their package directory as the working
-			// directory.
-			Context:    "../..",
-			Dockerfile: "Dockerfile.test",
+			Context:    sharedConfig.Context,
+			Dockerfile: sharedConfig.Dockerfile,
 		},
 		Cmd: []string{"sleep", "infinity"},
 	}

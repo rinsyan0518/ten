@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rinsyan0518/ten/internal/dockertest"
+	"github.com/rinsyan0518/ten/internal/testutil/dockertest"
 )
 
 func TestApply_MultiToolDAGOrder(t *testing.T) {

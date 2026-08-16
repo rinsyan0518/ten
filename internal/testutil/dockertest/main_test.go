@@ -1,4 +1,4 @@
-package e2e_test
+package dockertest_test
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 
 func TestMain(m *testing.M) {
 	os.Exit(dockertest.RunWithSharedContainer(m, dockertest.Config{
-		Context:    "../..",
+		Context:    "../../..",
 		Dockerfile: "Dockerfile.test",
 	}))
 }
