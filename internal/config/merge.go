@@ -1,35 +1,69 @@
 package config
 
-import "fmt"
+// mergeTool overlays override onto base, replacing only the fields
+// override actually sets. A field counts as "set" when its value is
+// distinguishable from "not present in this layer's TOML": a non-nil
+// pointer for Enabled, a non-nil map/slice for Links/Templates/DependsOn
+// (TOML decoding leaves an omitted key as the Go zero value, nil, while
+// an explicitly empty table/array like `links = {}` decodes to a non-nil
+// empty collection), and a non-empty string for PreApply/PostApply.
+func mergeTool(base, override Tool) Tool {
+	merged := base
+	if override.Enabled != nil {
+		merged.Enabled = override.Enabled
+	}
+	if override.Links != nil {
+		merged.Links = override.Links
+	}
+	if override.Templates != nil {
+		merged.Templates = override.Templates
+	}
+	if override.DependsOn != nil {
+		merged.DependsOn = override.DependsOn
+	}
+	if override.PreApply != "" {
+		merged.PreApply = override.PreApply
+	}
+	if override.PostApply != "" {
+		merged.PostApply = override.PostApply
+	}
+	return merged
+}
 
 // Merge combines the base repo config, an optional profile-specific repo
 // config, and an optional local config into a single Merged
 // configuration.
 //
-// [tools.*] and vars are both combined with layered key-level override,
-// applied in order base -> profile -> local (a later layer's value for a
-// given key fully replaces the earlier one; [tools.*] overrides by tool
-// name, vars overrides by var name).
+// [tools.*] is combined with layered per-field override, applied in
+// order base -> profile -> local: a later layer's value for a given
+// field fully replaces the earlier one only when that field is actually
+// set in the later layer (see mergeTool); fields left unset in a later
+// layer keep the value from the earliest layer that set them. Tool names
+// are the union of every name declared across the three layers.
 //
-// enabled_tools is resolved as the union of every EnabledTools list
-// declared (non-nil) across the three layers. If none of the three
-// layers declare enabled_tools, every defined tool is enabled (backward
-// compatible default).
+// vars follows the same base -> profile -> local layering but merges per
+// variable key rather than per tool: a variable declared in a later
+// layer overrides only that one key, leaving variables declared solely
+// in earlier layers untouched.
+//
+// Each tool's Enabled field follows the same per-field rule as the rest
+// of Tool: nil means "not set in this layer," and a tool whose Enabled
+// is nil after all three layers are folded defaults to enabled (true).
 func Merge(base File, profile *File, local *File) (Merged, error) {
 	tools := make(map[string]Tool)
 	for name, t := range base.Tools {
 		tools[name] = t
 	}
-	if profile != nil {
-		for name, t := range profile.Tools {
-			tools[name] = t
+	overlay := func(layer *File) {
+		if layer == nil {
+			return
+		}
+		for name, t := range layer.Tools {
+			tools[name] = mergeTool(tools[name], t)
 		}
 	}
-	if local != nil {
-		for name, t := range local.Tools {
-			tools[name] = t
-		}
-	}
+	overlay(profile)
+	overlay(local)
 
 	vars := make(map[string]string)
 	for k, v := range base.Vars {
@@ -46,39 +80,9 @@ func Merge(base File, profile *File, local *File) (Merged, error) {
 		}
 	}
 
-	var localEnabledTools []string
-	if local != nil {
-		localEnabledTools = local.EnabledTools
-	}
-	declared := base.EnabledTools != nil || localEnabledTools != nil ||
-		(profile != nil && profile.EnabledTools != nil)
-
 	enabled := make(map[string]bool)
-	if !declared {
-		for name := range tools {
-			enabled[name] = true
-		}
-	} else {
-		addAll := func(list []string) error {
-			for _, name := range list {
-				if _, ok := tools[name]; !ok {
-					return fmt.Errorf("config: enabled_tools references undefined tool %q", name)
-				}
-				enabled[name] = true
-			}
-			return nil
-		}
-		if err := addAll(base.EnabledTools); err != nil {
-			return Merged{}, err
-		}
-		if profile != nil {
-			if err := addAll(profile.EnabledTools); err != nil {
-				return Merged{}, err
-			}
-		}
-		if err := addAll(localEnabledTools); err != nil {
-			return Merged{}, err
-		}
+	for name, t := range tools {
+		enabled[name] = t.Enabled == nil || *t.Enabled
 	}
 
 	return Merged{
