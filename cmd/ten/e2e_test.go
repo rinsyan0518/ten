@@ -13,17 +13,17 @@ func TestApply_MultiToolDAGOrder(t *testing.T) {
 
 	sb.Init(t, home, home+"/dotfiles", "work")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
-enabled_tools = ["git"]
-
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
 
 [tools.git-work]
+enabled    = false
 depends_on = ["git"]
 links = { "home:.gitconfig.local" = "git/.gitconfig.work" }
 `)
 	sb.WriteFile(t, home+"/dotfiles/ten.work.toml", `
-enabled_tools = ["git-work"]
+[tools.git-work]
+enabled = true
 `)
 	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
 	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig.work", "work\n")
@@ -49,12 +49,11 @@ func TestApply_UnenabledToolIsNotApplied(t *testing.T) {
 
 	sb.Init(t, home, home+"/dotfiles")
 	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
-enabled_tools = ["git"]
-
 [tools.git]
 links = { "home:.gitconfig" = "git/.gitconfig" }
 
 [tools.nvim]
+enabled = false
 links = { "xdg:nvim" = "nvim" }
 `)
 	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
