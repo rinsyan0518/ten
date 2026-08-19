@@ -10,7 +10,12 @@ import (
 func formatApplyPlan(result apply.Result, dryRun bool) string {
 	resources := 0
 	for _, o := range result.Outcomes {
-		resources += len(o.Links) + len(o.Templates)
+		for _, r := range o.Links {
+			if !r.Skipped {
+				resources++
+			}
+		}
+		resources += len(o.Templates)
 	}
 	// Hooks are steps, not resources: they never count toward the summary
 	// line, but a hook-only tool still deserves to be shown.
@@ -31,6 +36,10 @@ func formatApplyPlan(result apply.Result, dryRun bool) string {
 			fmt.Fprintf(&b, "    > run before%s   %s\n", suffix, o.Before)
 		}
 		for _, r := range o.Links {
+			if r.Skipped {
+				fmt.Fprintf(&b, "    = symlink (up to date)   %s -> %s\n", r.Target, r.Source)
+				continue
+			}
 			fmt.Fprintf(&b, "    + create symlink%s   %s -> %s\n", suffix, r.Target, r.Source)
 		}
 		for _, r := range o.Templates {
