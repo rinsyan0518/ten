@@ -7,8 +7,14 @@ type Tool struct {
 	Links     map[string]string `toml:"links"`
 	Templates map[string]string `toml:"templates"`
 	DependsOn []string          `toml:"depends_on"`
-	PreApply  string            `toml:"pre_apply"`
-	PostApply string            `toml:"post_apply"`
+	Before    string            `toml:"before"`
+	// Once runs a shell command the first time this tool newly manages a
+	// link or template — i.e. when apply.Apply finds at least one of the
+	// tool's desired targets absent from state.State.ManagedResources at
+	// the start of the run. It never fires again once a target is
+	// tracked, and never fires for a tool with no links/templates.
+	Once  string `toml:"once"`
+	After string `toml:"after"`
 }
 
 // File is the parsed contents of any of ten.toml, ten.<profile>.toml, or

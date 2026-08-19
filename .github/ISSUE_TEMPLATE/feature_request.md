@@ -14,4 +14,4 @@ labels: enhancement
 
 ## Alternatives considered
 
-<!-- Other ways to solve the same problem, including "do nothing" / workarounds via existing pre_apply/post_apply hooks, and why they fall short. -->
+<!-- Other ways to solve the same problem, including "do nothing" / workarounds via existing before/once/after hooks, and why they fall short. -->
