@@ -88,6 +88,9 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if strings.Contains(out, "create symlink") {
 		t.Fatalf("expected no-op on second apply, got output: %s", out)
 	}
+	if !strings.Contains(out, "up to date") {
+		t.Fatalf("expected the already-synced git symlink to still be shown as up to date, got output: %s", out)
+	}
 
 	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -type f 2>/dev/null")
 	if strings.TrimSpace(findOut) != "" {
