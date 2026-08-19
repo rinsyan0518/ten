@@ -191,8 +191,11 @@ func TestApply_SkipsOnceHookWhenTargetAlreadyTrackedInState(t *testing.T) {
 			t.Fatalf("expected once NOT to fire for an already-tracked target, got calls %v", fx.calls)
 		}
 	}
-	if len(result.Outcomes) != 0 {
-		t.Fatalf("expected no outcome (link skipped, no hooks fired), got %+v", result.Outcomes)
+	if len(result.Outcomes) != 1 {
+		t.Fatalf("expected one outcome for the tool with a skipped link, got %+v", result.Outcomes)
+	}
+	if len(result.Outcomes[0].Links) != 1 || !result.Outcomes[0].Links[0].Skipped {
+		t.Fatalf("expected the skipped link to be included in the outcome, got %+v", result.Outcomes[0].Links)
 	}
 }
 
@@ -317,5 +320,51 @@ func TestApply_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
 	}
 	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; ok {
 		t.Fatalf("dry-run must not write to state")
+	}
+}
+
+func TestApply_IncludesBothChangedAndUpToDateToolsInOutcomes(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
+			"hoge": {Links: map[string]string{"home:.hogerc": "hoge/.hogerc"}},
+		},
+		Enabled: map[string]bool{"git": true, "hoge": true},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.hogerc": {Tool: "hoge", Type: "symlink", Source: "/dotfiles/hoge/.hogerc"},
+	}}
+
+	fx := &fakeExecutor{
+		LinkFunc: func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error) {
+			if target == "/home/taro/.hogerc" {
+				// Already tracked and already correct on disk.
+				return apply.LinkResult{Target: target, Source: source, Skipped: true}, nil
+			}
+			return apply.LinkResult{Target: target, Source: source}, nil
+		},
+	}
+	result, _, err := apply.Apply(apply.RunParams{
+		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Outcomes) != 2 {
+		t.Fatalf("expected both tools to appear in outcomes, got %+v", result.Outcomes)
+	}
+
+	byTool := map[string]apply.ToolOutcome{}
+	for _, o := range result.Outcomes {
+		byTool[o.Tool] = o
+	}
+	if len(byTool["git"].Links) != 1 || byTool["git"].Links[0].Skipped {
+		t.Fatalf("expected git's link to be a non-skipped create, got %+v", byTool["git"].Links)
+	}
+	if len(byTool["hoge"].Links) != 1 || !byTool["hoge"].Links[0].Skipped {
+		t.Fatalf("expected hoge's link to be skipped (already up to date), got %+v", byTool["hoge"].Links)
 	}
 }

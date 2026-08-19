@@ -173,9 +173,7 @@ func Apply(p RunParams) (Result, state.State, error) {
 					}
 					newState.ManagedResources[d.Target] = state.Resource{Tool: name, Type: "symlink", Source: d.Source, BackupPath: backupPath}
 				}
-				if !result.Skipped {
-					outcome.Links = append(outcome.Links, result)
-				}
+				outcome.Links = append(outcome.Links, result)
 			case "template":
 				// Only a resource previously managed as a template may be
 				// overwritten without a backup. Mere key presence is not
