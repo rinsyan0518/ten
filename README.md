@@ -2,18 +2,33 @@
 
 [![CI](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml/badge.svg)](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml)
 
+> **⚠️ `ten` is under development. Breaking changes may land without notice.**
+
 English | [日本語](README.ja.md)
 
-`ten` is a Go CLI dotfiles manager.
+`ten` is a Go CLI dotfiles manager. Its simple, declarative design doesn't lock you into a particular way of working, so you can move to another tool anytime you need to.
 
 - **Idempotent** — running it repeatedly always converges to the same result
 - **Safe backups** — existing files are backed up before anything is overwritten
 - **Dependency resolution** — tools apply in DAG order via `depends_on`
 - **Per-machine differences** — profile-specific files plus local overrides
 - **Stateful garbage collection** — resources removed from config are automatically cleaned up
+- **No imposed layout** — `links`/`templates` source paths are just paths in your repo; `ten` doesn't require any particular directory convention
 - **Destroy** — `ten destroy` tears down everything it manages and restores backups
 
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [How apply works](#how-apply-works)
+- [Configuration reference](#configuration-reference)
+- [Commands](#commands)
+- [Development](#development)
+- [License](#license)
+
 ## Install
+
+Prebuilt binaries are published for Linux and macOS (amd64/arm64); Windows is not supported.
 
 ```bash
 go install github.com/rinsyan0518/ten/cmd/ten@latest
@@ -72,11 +87,27 @@ git_email = "taro.yamada@work.example.com"
 git_name = "Taro Yamada"
 ```
 
+These vars are consumed by `templates`, e.g.:
+
+```
+# ~/dotfiles/git/gitconfig.local.tmpl
+[user]
+    email = {{ .Vars.git_email }}
+    name = {{ .Vars.git_name }}
+```
+
 ### 4. Apply
 
 ```bash
 ten apply --dry-run   # preview what would change
 ten apply             # apply for real
+```
+
+### 5. (Optional) Undo
+
+```bash
+ten destroy --dry-run   # preview what would be removed
+ten destroy              # remove for real, restoring backups
 ```
 
 ## How apply works

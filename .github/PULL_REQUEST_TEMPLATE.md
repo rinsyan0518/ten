@@ -4,10 +4,9 @@
 
 ## Why
 
-<!-- The bug/issue this fixes. Link the issue if one exists; if not, explain the failure this addresses (repro or root cause), since PRs here are fix-only. -->
+<!-- The motivation for this change. Link an issue if one exists; if not, explain the problem or goal this addresses. -->
 
 ## Checklist
 
-- [ ] This is a fix (bug, security, correctness) — feature changes were discussed in an issue first
 - [ ] `make ci` passes locally <!-- build, fmt-check, lint, vulncheck, test — see Makefile -->
 

@@ -2,18 +2,33 @@
 
 [![CI](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml/badge.svg)](https://github.com/rinsyan0518/ten/actions/workflows/ci.yml)
 
+> **⚠️ `ten` はまだ開発段階です。予告なく破壊的変更が入ることがあります。**
+
 [English](README.md) | 日本語
 
-`ten` はGo製のdotfilesマネージャCLIです。
+`ten` はGo製のdotfilesマネージャCLIです。シンプルな仕組みで宣言的にdotfilesを管理でき、特定の使い方に縛られないため、必要になったら他のツールへいつでも移行できます。
 
 - **冪等性** — 何度実行しても同じ結果に収束する
 - **安全なバックアップ** — 上書きする前に既存ファイルをバックアップする
 - **依存関係解決** — ツールは `depends_on` によるDAG順序で適用される
 - **マシンごとの差分** — プロファイル別ファイル＋ローカルオーバーライド
 - **ステートフルなガベージコレクション** — 設定から削除されたリソースは自動的にクリーンアップされる
+- **ディレクトリ構造を強制しない** — `links`/`templates` の参照元パスはリポジトリ内の単なるパスであり、`ten` は特定のディレクトリ構成を要求しない
 - **Destroy** — `ten destroy` は管理しているものすべてを取り壊し、バックアップを復元する
 
+## 目次
+
+- [インストール](#インストール)
+- [クイックスタート](#クイックスタート)
+- [applyの仕組み](#applyの仕組み)
+- [設定リファレンス](#設定リファレンス)
+- [コマンド](#コマンド)
+- [開発](#開発)
+- [ライセンス](#ライセンス)
+
 ## インストール
+
+ビルド済みバイナリはLinuxとmacOS（amd64/arm64）向けに配布されています。Windowsには対応していません。
 
 ```bash
 go install github.com/rinsyan0518/ten/cmd/ten@latest
@@ -72,11 +87,27 @@ git_email = "taro.yamada@work.example.com"
 git_name = "Taro Yamada"
 ```
 
+これらの変数は `templates` から次のように参照されます:
+
+```
+# ~/dotfiles/git/gitconfig.local.tmpl
+[user]
+    email = {{ .Vars.git_email }}
+    name = {{ .Vars.git_name }}
+```
+
 ### 4. 適用する
 
 ```bash
 ten apply --dry-run   # 変更内容をプレビュー
 ten apply             # 実際に適用
+```
+
+### 5. （任意）取り消す
+
+```bash
+ten destroy --dry-run   # 削除内容をプレビュー
+ten destroy              # 実際に削除し、バックアップを復元
 ```
 
 ## applyの仕組み
