@@ -6,7 +6,7 @@ package config
 // pointer for Enabled, a non-nil map/slice for Links/Templates/DependsOn
 // (TOML decoding leaves an omitted key as the Go zero value, nil, while
 // an explicitly empty table/array like `links = {}` decodes to a non-nil
-// empty collection), and a non-empty string for PreApply/PostApply.
+// empty collection), and a non-empty string for Before/Once/After.
 func mergeTool(base, override Tool) Tool {
 	merged := base
 	if override.Enabled != nil {
@@ -21,11 +21,14 @@ func mergeTool(base, override Tool) Tool {
 	if override.DependsOn != nil {
 		merged.DependsOn = override.DependsOn
 	}
-	if override.PreApply != "" {
-		merged.PreApply = override.PreApply
+	if override.Before != "" {
+		merged.Before = override.Before
 	}
-	if override.PostApply != "" {
-		merged.PostApply = override.PostApply
+	if override.Once != "" {
+		merged.Once = override.Once
+	}
+	if override.After != "" {
+		merged.After = override.After
 	}
 	return merged
 }
