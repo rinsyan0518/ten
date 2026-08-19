@@ -60,7 +60,7 @@ func TestLoadFile_MissingFileIsOptional(t *testing.T) {
 
 func TestMerge_LocalOverridesRepoFieldLevel(t *testing.T) {
 	repo := File{Tools: map[string]Tool{
-		"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, PostApply: "echo repo"},
+		"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, Before: "echo repo-before", Once: "echo repo-once", After: "echo repo-after"},
 		"nvim": {Links: map[string]string{"xdg:nvim": "nvim"}},
 	}}
 	local := &File{
@@ -76,11 +76,13 @@ func TestMerge_LocalOverridesRepoFieldLevel(t *testing.T) {
 	}
 
 	wantGit := Tool{
-		Links:     map[string]string{"home:.gitconfig": "git/.gitconfig.local"},
-		PostApply: "echo repo",
+		Links:  map[string]string{"home:.gitconfig": "git/.gitconfig.local"},
+		Before: "echo repo-before",
+		Once:   "echo repo-once",
+		After:  "echo repo-after",
 	}
 	if !reflect.DeepEqual(got.Tools["git"], wantGit) {
-		t.Fatalf("expected field-level merge (links replaced, post_apply preserved from repo), got %+v", got.Tools["git"])
+		t.Fatalf("expected field-level merge (links replaced, before/once/after preserved from repo), got %+v", got.Tools["git"])
 	}
 	if _, ok := got.Tools["nvim"]; !ok {
 		t.Fatalf("expected nvim to survive merge untouched")

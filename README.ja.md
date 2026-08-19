@@ -54,7 +54,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 
 [tools.nvim]
 links = { "xdg:nvim" = "nvim" }
-post_apply = "nvim --headless '+Lazy! sync' +qa"
+after = "nvim --headless '+Lazy! sync' +qa"
 ```
 
 ### 3. （任意）マシンローカルなオーバーライドを追加する
@@ -88,7 +88,7 @@ flowchart TD
     A["ten.toml + ten.&lt;profile&gt;.toml + ten.local.toml"] --> B["フィールド単位でマージ（レイヤリング）"]
     B --> C["有効なツールを抽出し depends_on を解決"]
     C --> D["トポロジカルソート → DAG順序"]
-    D --> E["順序どおりに各ツールを処理:\npre_apply → links/templates → post_apply"]
+    D --> E["順序どおりに各ツールを処理:\nbefore → links/templates → [once] → after"]
     E -->|hookが非ゼロ終了| F["即座に停止（fail-fast）\n以降のツールは実行されない"]
     E -->|全ツール成功| G["完了"]
 ```
@@ -96,7 +96,8 @@ flowchart TD
 設定だけからは分かりにくい2点:
 
 - **hooksは有効なツールに対して必ず実行される** — `links`/`templates` に実際の変更があったかどうかに関わらず、リソースを持たずhooksだけを定義しているツールでも実行される。
-- **hookが失敗すると実行全体が停止する。** `pre_apply` または `post_apply` が非ゼロ終了すると、`ten apply` は即座に停止する — DAG順序で後にあるツールは一切実行されない。
+- **hookが失敗すると実行全体が停止する。** `before`・`once`・`after` のいずれかが非ゼロ終了すると、`ten apply` は即座に停止する — DAG順序で後にあるツールは一切実行されない。
+- **`once` はツールごとに最大1回だけ発火する。** 今回のrunでそのツールが `links`/`templates` の対象を新たに管理する場合(＝`ten.state.json` に未登録だった場合)にのみ実行される。`links`/`templates` を持たないツールでは発火しない。
 
 依存関係の順序、設定のレイヤリング、hook実行については以降のセクションで詳しく説明します。
 
@@ -117,8 +118,9 @@ enabled    = false                                                   # 省略時
 depends_on = ["git"]                                                 # 依存先のあとに、DAG順序で適用される
 links     = { "home:.gitconfig" = "git/.gitconfig" }                 # シンボリックリンク
 templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" } # text/template で描画される（{{ .Vars.key }}）
-pre_apply  = "echo before"                                           # このツールのリソースより前に実行するシェルコマンド
-post_apply = "echo after"                                            # あとに実行するシェルコマンド
+before = "echo before"                                                # このツールのリソースより前に実行するシェルコマンド
+once   = "echo once"                                                  # このツールが link/template を新たに管理した最初の1回だけ実行するシェルコマンド
+after  = "echo after"                                                 # あとに実行するシェルコマンド
 ```
 
 #### 依存関係の順序
@@ -146,7 +148,7 @@ flowchart LR
 
 - **フィールド単位のマージ**: 後段のレイヤーは実際に設定したフィールドのみを上書きし、未設定のフィールドは前段のレイヤーの値のまま残ります。
 - **`links` / `templates` / `depends_on` は丸ごと置換**: 後段のレイヤーがこれらのフィールドを少しでも設定すると、そのフィールド全体が置き換わります（1つのフィールド内でのキー単位のマージは行われません）。
-- **`pre_apply` / `post_apply` は空文字列を「未設定」として扱う**: そのため後段のレイヤーは、前段のレイヤーで設定された値を明示的にクリアすることはできません。
+- **`before` / `once` / `after` は空文字列を「未設定」として扱う**: そのため後段のレイヤーは、前段のレイヤーで設定された値を明示的にクリアすることはできません。
 - **旧 `enabled_tools` は無視される**: このフィールドが存在する前の設定に残っている、トップレベルの `enabled_tools` キーはエラーにならず黙って無視されるため、すべてのツールはデフォルトの `enabled = true` にフォールバックします。古い設定を移行する場合は、`enabled_tools` を削除し、各ツールのオン/オフ状態をそれぞれの `[tools.*]` ブロックの `enabled` フィールドに移してください。
 
 #### hookの実行
@@ -157,15 +159,19 @@ flowchart TD
     Enabled -->|いいえ| Skip["完全にスキップ — hooksも実行されない"]
     Enabled -->|はい| Dry{"--dry-run?"}
     Dry -->|はい| Plan["hooksはプランに表示されるのみ\n実行はされない"]
-    Dry -->|いいえ| Pre["pre_apply を実行"]
+    Dry -->|いいえ| Pre["before を実行"]
     Pre -->|非ゼロ終了| Fail["apply全体を停止\n（fail-fast）"]
     Pre -->|ゼロ終了 または未設定| Res["links / templates を適用\n（変更がなくても実行される）"]
-    Res --> Post["post_apply を実行"]
+    Res --> New{"今回のrunで\nlink/templateを新たに管理?"}
+    New -->|はい、かつonce設定あり| Once["once を実行"]
+    New -->|いいえ、またはonce未設定| Post["after を実行"]
+    Once -->|非ゼロ終了| Fail
+    Once -->|ゼロ終了| Post
     Post -->|非ゼロ終了| Fail
     Post -->|ゼロ終了 または未設定| Next["次のツールへ"]
 ```
 
-`pre_apply` と `post_apply` は、有効な各ツールに対してDAG順序で無条件に実行されます — そのツールのリソースに変更がなくても、`links`/`templates` を持たずhooksだけを定義しているツールでも実行されます。`--dry-run` では、hooksはプランに表示されるだけで実行されません。非ゼロ終了は `ten apply` を即座に停止させます。DAG順序で後にあるツールは実行されません。
+`before` と `after` は、有効な各ツールに対してDAG順序で無条件に実行されます — そのツールのリソースに変更がなくても、`links`/`templates` を持たずhooksだけを定義しているツールでも実行されます。`once` は、今回のrunでそのツールが `links`/`templates` の対象を新たに管理する場合(＝run開始時点で `ten.state.json` に未登録だった場合)にのみ実行されます — シンボリックリンク/テンプレート操作自体がno-opだったかどうかとは独立しており、`links`/`templates` を持たないツールでは発火しません。`--dry-run` では、hooksはプランに表示されるだけで実行されません(`once` の発火判定自体はstateだけを見るため、この判定ロジックはdry-runでも変わりません)。`before`・`once`・`after` のいずれかが非ゼロ終了すると `ten apply` は即座に停止します。DAG順序で後にあるツールは実行されません。
 
 `enabled` を使うと、他のフィールドを繰り返し書かずにレイヤーごとにツールのオン/オフを切り替えられます。例えば `ten.toml` でデフォルト無効なツールを定義し、特定のプロファイルだけで有効にする場合:
 

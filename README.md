@@ -54,7 +54,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 
 [tools.nvim]
 links = { "xdg:nvim" = "nvim" }
-post_apply = "nvim --headless '+Lazy! sync' +qa"
+after = "nvim --headless '+Lazy! sync' +qa"
 ```
 
 ### 3. (Optional) Add machine-local overrides
@@ -88,7 +88,7 @@ flowchart TD
     A["ten.toml + ten.&lt;profile&gt;.toml + ten.local.toml"] --> B["Merge per field (layering)"]
     B --> C["Keep enabled tools, resolve depends_on"]
     C --> D["Topological sort → DAG order"]
-    D --> E["For each tool, in order:\npre_apply → links/templates → post_apply"]
+    D --> E["For each tool, in order:\nbefore → links/templates → [once] → after"]
     E -->|hook exits non-zero| F["Stop immediately (fail-fast)\nlater tools do not run"]
     E -->|all tools succeed| G["Done"]
 ```
@@ -96,7 +96,8 @@ flowchart TD
 Two details that aren't obvious from the config alone:
 
 - **Hooks always run for an enabled tool**, regardless of whether its `links`/`templates` actually changed, and even if the tool defines only hooks with no resources at all.
-- **A failing hook stops the whole run.** If `pre_apply` or `post_apply` exits non-zero, `ten apply` stops immediately — tools later in DAG order never run.
+- **A failing hook stops the whole run.** If `before`, `once`, or `after` exits non-zero, `ten apply` stops immediately — tools later in DAG order never run.
+- **`once` fires at most once per tool.** It runs only when this apply run causes the tool to newly manage a `links`/`templates` target that wasn't already recorded in `ten.state.json`; it never fires for a tool with no `links`/`templates`.
 
 Later sections cover dependency order, config layering, and hook execution in more detail.
 
@@ -117,8 +118,9 @@ enabled    = false                                                   # defaults 
 depends_on = ["git"]                                                 # applied after its dependencies, in DAG order
 links     = { "home:.gitconfig" = "git/.gitconfig" }                 # symlinks
 templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" } # rendered via text/template ({{ .Vars.key }})
-pre_apply  = "echo before"                                           # shell command run before this tool's resources
-post_apply = "echo after"                                            # shell command run after
+before = "echo before"                                                # shell command run before this tool's resources
+once   = "echo once"                                                  # shell command run only the first time this tool newly manages a link/template
+after  = "echo after"                                                 # shell command run after
 ```
 
 #### Dependency order
@@ -146,7 +148,7 @@ flowchart LR
 
 - **Per-field merge**: a later layer overrides only the fields it actually sets, leaving fields it leaves unset untouched from the earlier layer.
 - **`links` / `templates` / `depends_on` replace as a whole**: when a later layer sets one of these fields at all, it replaces the entire field (no per-key merging within a single field).
-- **`pre_apply` / `post_apply` treat an empty string as "not set"**: a later layer can't explicitly clear a value set by an earlier layer.
+- **`before` / `once` / `after` treat an empty string as "not set"**: a later layer can't explicitly clear a value set by an earlier layer.
 - **Legacy `enabled_tools` is ignored**: a leftover top-level `enabled_tools` key from before this field existed is silently ignored (not an error), so every tool falls back to its default of `enabled = true`. If you're migrating an old config, delete `enabled_tools` and move each tool's on/off state into its own `[tools.*]` block's `enabled` field.
 
 #### Hook execution
@@ -157,15 +159,19 @@ flowchart TD
     Enabled -->|no| Skip["Skipped entirely — no hooks"]
     Enabled -->|yes| Dry{"--dry-run?"}
     Dry -->|yes| Plan["Hooks shown in the plan,\nnot executed"]
-    Dry -->|no| Pre["Run pre_apply"]
+    Dry -->|no| Pre["Run before"]
     Pre -->|non-zero exit| Fail["Stop whole apply\n(fail-fast)"]
     Pre -->|zero exit or unset| Res["Apply links / templates\n(runs even if unchanged)"]
-    Res --> Post["Run post_apply"]
+    Res --> New{"Newly managed a\nlink/template this run?"}
+    New -->|yes, and once set| Once["Run once"]
+    New -->|no, or once unset| Post["Run after"]
+    Once -->|non-zero exit| Fail
+    Once -->|zero exit| Post
     Post -->|non-zero exit| Fail
     Post -->|zero exit or unset| Next["Continue to next tool"]
 ```
 
-`pre_apply` and `post_apply` run unconditionally for every enabled tool, in DAG order — even when the tool's resources didn't change, and even for a tool with hooks but no `links`/`templates`. Under `--dry-run`, hooks are shown in the plan but never executed. A non-zero exit stops `ten apply` immediately; tools later in DAG order do not run.
+`before` and `after` run unconditionally for every enabled tool, in DAG order — even when the tool's resources didn't change, and even for a tool with hooks but no `links`/`templates`. `once` runs only when this apply run causes the tool to newly manage at least one `links`/`templates` target — one that wasn't already recorded in `ten.state.json` when the run started; it is independent of whether the underlying symlink/template operation was itself a no-op, and it never fires for a tool with no `links`/`templates`. Under `--dry-run`, hooks are shown in the plan but never executed (the `once` eligibility check itself still runs, since it only reads state, not the filesystem). A non-zero exit from `before`, `once`, or `after` stops `ten apply` immediately; tools later in DAG order do not run.
 
 Use `enabled` to turn a tool on or off per layer without repeating its other fields — e.g. define a tool disabled by default in `ten.toml` and flip it on for one profile:
 
