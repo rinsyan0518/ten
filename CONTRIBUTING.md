@@ -6,5 +6,5 @@ If you've found a security vulnerability, see [SECURITY.md](SECURITY.md) instead
 
 ## For collaborators
 
-- Pull requests are limited to fixes (bugs, security, correctness). Feature changes should be discussed in an issue before opening a PR.
+- Pull requests are open to any kind of change (fixes, features, docs, chores, etc.) — no prior issue discussion required.
 - `make ci` (build, format check, lint, vulncheck, test) must pass before requesting review.
