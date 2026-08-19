@@ -100,6 +100,133 @@ func TestApply_RunsToolsInDependencyOrderWithHooksAndLinks(t *testing.T) {
 	}
 }
 
+func TestApply_RunsOnceHookWhenToolNewlyManagesASymlink(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, Once: "echo first-time"},
+		},
+		Enabled: map[string]bool{"git": true},
+	}
+
+	fx := &fakeExecutor{}
+	result, _, err := apply.Apply(apply.RunParams{
+		Merged:   merged,
+		Current:  state.State{ManagedResources: map[string]state.Resource{}},
+		Home:     "/home/taro",
+		Out:      io.Discard,
+		Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantCalls := []string{"link:/home/taro/.gitconfig", "hook:echo first-time"}
+	if !reflect.DeepEqual(fx.calls, wantCalls) {
+		t.Fatalf("got calls %v, want %v", fx.calls, wantCalls)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "echo first-time" {
+		t.Fatalf("expected once to be recorded in the outcome, got %+v", result.Outcomes)
+	}
+}
+
+func TestApply_RunsOnceHookWhenToolNewlyManagesATemplate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git": {Templates: map[string]string{"home:.gitconfig": "git/.gitconfig.tmpl"}, Once: "echo first-time"},
+		},
+		Enabled: map[string]bool{"git": true},
+	}
+
+	fx := &fakeExecutor{}
+	result, _, err := apply.Apply(apply.RunParams{
+		Merged:   merged,
+		Current:  state.State{ManagedResources: map[string]state.Resource{}},
+		Home:     "/home/taro",
+		Out:      io.Discard,
+		Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "echo first-time" {
+		t.Fatalf("expected once to fire for a newly-managed template, got %+v", result.Outcomes)
+	}
+}
+
+func TestApply_SkipsOnceHookWhenTargetAlreadyTrackedInState(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, Once: "echo first-time"},
+		},
+		Enabled: map[string]bool{"git": true},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
+	}}
+
+	fx := &fakeExecutor{
+		// Already tracked and already correct on disk, exactly like a real
+		// idempotent re-apply: Link reports Skipped=true.
+		LinkFunc: func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error) {
+			return apply.LinkResult{Target: target, Source: source, Skipped: true}, nil
+		},
+	}
+	result, _, err := apply.Apply(apply.RunParams{
+		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, c := range fx.calls {
+		if c == "hook:echo first-time" {
+			t.Fatalf("expected once NOT to fire for an already-tracked target, got calls %v", fx.calls)
+		}
+	}
+	if len(result.Outcomes) != 0 {
+		t.Fatalf("expected no outcome (link skipped, no hooks fired), got %+v", result.Outcomes)
+	}
+}
+
+func TestApply_SkipsOnceHookForAToolWithNoResources(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git": {Before: "echo start", Once: "echo first-time", After: "echo done"},
+		},
+		Enabled: map[string]bool{"git": true},
+	}
+
+	fx := &fakeExecutor{}
+	result, _, err := apply.Apply(apply.RunParams{
+		Merged:   merged,
+		Current:  state.State{ManagedResources: map[string]state.Resource{}},
+		Home:     "/home/taro",
+		Out:      io.Discard,
+		Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantCalls := []string{"hook:echo start", "hook:echo done"}
+	if !reflect.DeepEqual(fx.calls, wantCalls) {
+		t.Fatalf("expected once NOT to fire for a hooks-only tool, got calls %v, want %v", fx.calls, wantCalls)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "" {
+		t.Fatalf("expected outcome.Once to stay empty, got %+v", result.Outcomes)
+	}
+}
+
 func TestApply_PrunesResourcesNotInDesired(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 

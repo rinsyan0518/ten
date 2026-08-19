@@ -29,11 +29,14 @@ type ToolOutcome struct {
 	Before    string
 	Links     []LinkResult
 	Templates []TemplateResult
-	After     string
+	// Once is non-empty only when the tool's once hook actually fired (or,
+	// under --dry-run, was eligible to fire) this run.
+	Once  string
+	After string
 }
 
 func (o ToolOutcome) empty() bool {
-	return o.Before == "" && o.After == "" && len(o.Links) == 0 && len(o.Templates) == 0
+	return o.Before == "" && o.Once == "" && o.After == "" && len(o.Links) == 0 && len(o.Templates) == 0
 }
 
 // PruneOutcome is one resource that left ten's control this run, plus the
@@ -141,7 +144,16 @@ func Apply(p RunParams) (Result, state.State, error) {
 			return fail(err)
 		}
 
+		// newlyManaged tracks whether this run causes the tool to manage a
+		// target it didn't already own, per p.Current (the state as it was
+		// when this run started) — independent of whether the filesystem
+		// operation itself was a no-op (LinkResult.Skipped). This is the
+		// trigger for the once hook below.
+		newlyManaged := false
 		for _, d := range byTool[name] {
+			if _, tracked := p.Current.ManagedResources[d.Target]; !tracked {
+				newlyManaged = true
+			}
 			switch d.Kind {
 			case "symlink":
 				result, err := p.Executor.Link(d.Target, d.Source, backupDir, p.DryRun)
@@ -188,6 +200,13 @@ func Apply(p RunParams) (Result, state.State, error) {
 				}
 				outcome.Templates = append(outcome.Templates, result)
 			}
+		}
+
+		if newlyManaged && tool.Once != "" {
+			if err := p.Executor.RunHook(tool.Once, out, p.DryRun); err != nil {
+				return fail(err)
+			}
+			outcome.Once = tool.Once
 		}
 
 		if err := p.Executor.RunHook(tool.After, out, p.DryRun); err != nil {
