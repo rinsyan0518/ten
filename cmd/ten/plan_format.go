@@ -27,8 +27,8 @@ func formatApplyPlan(result apply.Result, dryRun bool) string {
 	fmt.Fprintf(&b, "Plan: %d to create, %d to prune\n\n", resources, len(result.Prunes))
 	for _, o := range result.Outcomes {
 		fmt.Fprintf(&b, "  %s\n", o.Tool)
-		if o.PreApply != "" {
-			fmt.Fprintf(&b, "    > run pre_apply%s   %s\n", suffix, o.PreApply)
+		if o.Before != "" {
+			fmt.Fprintf(&b, "    > run before%s   %s\n", suffix, o.Before)
 		}
 		for _, r := range o.Links {
 			fmt.Fprintf(&b, "    + create symlink%s   %s -> %s\n", suffix, r.Target, r.Source)
@@ -36,8 +36,11 @@ func formatApplyPlan(result apply.Result, dryRun bool) string {
 		for _, r := range o.Templates {
 			fmt.Fprintf(&b, "    ~ render template%s  %s <- %s\n", suffix, r.Target, r.Source)
 		}
-		if o.PostApply != "" {
-			fmt.Fprintf(&b, "    > run post_apply%s   %s\n", suffix, o.PostApply)
+		if o.Once != "" {
+			fmt.Fprintf(&b, "    > run once%s     %s\n", suffix, o.Once)
+		}
+		if o.After != "" {
+			fmt.Fprintf(&b, "    > run after%s    %s\n", suffix, o.After)
 		}
 		b.WriteString("\n")
 	}
