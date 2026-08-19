@@ -64,12 +64,12 @@ func TestApply_RunsToolsInDependencyOrderWithHooksAndLinks(t *testing.T) {
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
 			"git": {
-				Links:     map[string]string{"home:.gitconfig": "git/.gitconfig"},
-				PostApply: "echo git-done",
+				Links: map[string]string{"home:.gitconfig": "git/.gitconfig"},
+				After: "echo git-done",
 			},
 			"git-work": {
 				DependsOn: []string{"git"},
-				PreApply:  "echo work-start",
+				Before:    "echo work-start",
 				Templates: map[string]string{"home:.gitconfig.local": "git/gitconfig.local.tmpl"},
 			},
 		},

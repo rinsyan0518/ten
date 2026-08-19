@@ -26,14 +26,14 @@ type RunParams struct {
 // and which resources were created or rendered.
 type ToolOutcome struct {
 	Tool      string
-	PreApply  string
+	Before    string
 	Links     []LinkResult
 	Templates []TemplateResult
-	PostApply string
+	After     string
 }
 
 func (o ToolOutcome) empty() bool {
-	return o.PreApply == "" && o.PostApply == "" && len(o.Links) == 0 && len(o.Templates) == 0
+	return o.Before == "" && o.After == "" && len(o.Links) == 0 && len(o.Templates) == 0
 }
 
 // PruneOutcome is one resource that left ten's control this run, plus the
@@ -53,7 +53,7 @@ type Result struct {
 
 // Apply resolves p.Merged's desired resources against p.Current, prunes
 // whatever is no longer desired, then walks tools in dependency order
-// running pre_apply/links/templates/post_apply for each. It always
+// running before/links/templates/after for each. It always
 // returns the Result and state.State reflecting everything it actually
 // did, even when it returns a non-nil error: the first failing step
 // stops the run (fail-fast), but everything before it is kept in both
@@ -129,7 +129,7 @@ func Apply(p RunParams) (Result, state.State, error) {
 	// dependency order.
 	for _, name := range order {
 		tool := p.Merged.Tools[name]
-		outcome := ToolOutcome{Tool: name, PreApply: tool.PreApply}
+		outcome := ToolOutcome{Tool: name, Before: tool.Before}
 		fail := func(err error) (Result, state.State, error) {
 			if !outcome.empty() {
 				outcomes = append(outcomes, outcome)
@@ -137,7 +137,7 @@ func Apply(p RunParams) (Result, state.State, error) {
 			return Result{Outcomes: outcomes, Prunes: prunes}, newState, fmt.Errorf("apply: tool %s: %w", name, err)
 		}
 
-		if err := p.Executor.RunHook(tool.PreApply, out, p.DryRun); err != nil {
+		if err := p.Executor.RunHook(tool.Before, out, p.DryRun); err != nil {
 			return fail(err)
 		}
 
@@ -190,10 +190,10 @@ func Apply(p RunParams) (Result, state.State, error) {
 			}
 		}
 
-		if err := p.Executor.RunHook(tool.PostApply, out, p.DryRun); err != nil {
+		if err := p.Executor.RunHook(tool.After, out, p.DryRun); err != nil {
 			return fail(err)
 		}
-		outcome.PostApply = tool.PostApply
+		outcome.After = tool.After
 		if !outcome.empty() {
 			outcomes = append(outcomes, outcome)
 		}
