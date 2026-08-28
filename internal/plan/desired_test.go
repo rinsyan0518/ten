@@ -2,6 +2,7 @@ package plan_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/config"
@@ -31,6 +32,46 @@ func TestDesired_ResolvesLinksAndTemplatesInSortedKeyOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestDesired_ErrorsWhenTwoToolsClaimTheSameTarget(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git":      {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
+			"git-work": {Links: map[string]string{"home:.gitconfig": "git-work/.gitconfig"}},
+		},
+	}
+
+	_, err := plan.Desired(merged, []string{"git", "git-work"}, "/home/taro")
+	if err == nil {
+		t.Fatalf("expected error for conflicting target, got nil")
+	}
+	for _, want := range []string{"/home/taro/.gitconfig", "git", "git-work"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error should mention %q, got: %v", want, err)
+		}
+	}
+}
+
+func TestDesired_ErrorsWhenLinksAndTemplatesClaimTheSameTarget(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git": {
+				Links:     map[string]string{"home:.gitconfig": "git/.gitconfig"},
+				Templates: map[string]string{"home:.gitconfig": "git/gitconfig.tmpl"},
+			},
+		},
+	}
+
+	_, err := plan.Desired(merged, []string{"git"}, "/home/taro")
+	if err == nil {
+		t.Fatalf("expected error for link/template conflict on one target, got nil")
+	}
+	if !strings.Contains(err.Error(), "/home/taro/.gitconfig") {
+		t.Fatalf("error should mention the conflicting target, got: %v", err)
 	}
 }
 
