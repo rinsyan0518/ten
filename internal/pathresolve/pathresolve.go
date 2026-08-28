@@ -50,6 +50,17 @@ func Resolve(env Env, key string) (string, error) {
 	}
 }
 
+// EqualPaths reports whether two path spellings name the same path after
+// lexical cleaning (trailing slashes, ".." and "." components, doubled
+// separators). It is the comparison every symlink-identity check goes
+// through, so a link written with a different but equivalent spelling —
+// by hand, or by an earlier ten — is still recognized as ten's own
+// instead of being backed up and replaced (apply) or refused (destroy).
+// Purely lexical: it does not resolve symlinks in either argument.
+func EqualPaths(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
 // ExpandHome expands a leading "~" or "~/" in path to home. A path that
 // doesn't start with either is returned unchanged.
 func ExpandHome(path, home string) string {

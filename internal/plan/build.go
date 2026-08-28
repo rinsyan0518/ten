@@ -198,7 +198,7 @@ func planLink(d Target, ins Inspector) (LinkStep, error) {
 	switch {
 	case !entry.Exists:
 		step.Action = ActionCreate
-	case entry.IsSymlink && entry.LinkDest == d.Source:
+	case entry.IsSymlink && pathresolve.EqualPaths(entry.LinkDest, d.Source):
 		step.Action = ActionNoop
 	default:
 		step.Action = ActionReplace
@@ -242,7 +242,7 @@ func planPrune(target string, res state.Resource, ins Inspector) (PruneStep, err
 			step.Action = ActionSkip
 			step.SkipReason = "no longer a symlink created by ten"
 			return step, nil
-		case entry.LinkDest != res.Source:
+		case !pathresolve.EqualPaths(entry.LinkDest, res.Source):
 			step.Action = ActionSkip
 			step.SkipReason = fmt.Sprintf("symlink now points at %s, not %s", entry.LinkDest, res.Source)
 			return step, nil

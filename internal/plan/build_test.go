@@ -68,6 +68,7 @@ func TestBuild_LinkActions(t *testing.T) {
 	}{
 		{name: "missing target is created", entry: plan.Entry{}, want: plan.ActionCreate},
 		{name: "correct symlink is a noop", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: source}, want: plan.ActionNoop},
+		{name: "symlink differing only in path spelling is a noop", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: "/dotfiles/git/../git/.gitconfig"}, want: plan.ActionNoop},
 		{name: "symlink elsewhere is replaced", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: "/elsewhere"}, want: plan.ActionReplace},
 		{name: "regular file is replaced", entry: plan.Entry{Exists: true}, want: plan.ActionReplace},
 	}
@@ -226,6 +227,12 @@ func TestBuild_PruneActions(t *testing.T) {
 			name:    "owned symlink with no backup is removed",
 			res:     state.Resource{Tool: "old", Type: "symlink", Source: source},
 			entries: map[string]plan.Entry{target: {Exists: true, IsSymlink: true, LinkDest: source}},
+			want:    plan.ActionRemove,
+		},
+		{
+			name:    "owned symlink differing only in path spelling is still owned",
+			res:     state.Resource{Tool: "old", Type: "symlink", Source: source},
+			entries: map[string]plan.Entry{target: {Exists: true, IsSymlink: true, LinkDest: "/dotfiles/old/../old/x"}},
 			want:    plan.ActionRemove,
 		},
 		{

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 )
 
 // UnlinkRequest describes a single managed resource to take back out of
@@ -96,7 +98,7 @@ func verifyOwned(req UnlinkRequest, info os.FileInfo) string {
 	if err != nil {
 		return fmt.Sprintf("could not read symlink (%v)", err)
 	}
-	if dest != req.Source {
+	if !pathresolve.EqualPaths(dest, req.Source) {
 		return fmt.Sprintf("symlink now points at %s, not %s", dest, req.Source)
 	}
 	return ""

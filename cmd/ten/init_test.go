@@ -75,9 +75,56 @@ func TestInit_PathFlagOverridesCwd(t *testing.T) {
 		t.Fatalf("execute init: %v", err)
 	}
 
-	got := loadState(t, home)
-	if got.DotfilesRoot != dotfilesRoot {
-		t.Fatalf("expected DotfilesRoot %q, got %q", dotfilesRoot, got.DotfilesRoot)
+	assertSameDir(t, loadState(t, home).DotfilesRoot, dotfilesRoot)
+}
+
+// assertSameDir compares two directory paths after resolving symlinks in
+// both, since runInit stores the symlink-resolved form (and t.TempDir
+// itself may live behind a symlink, e.g. /var on macOS).
+func assertSameDir(t *testing.T, got, want string) {
+	t.Helper()
+	gotResolved, err := filepath.EvalSymlinks(got)
+	if err != nil {
+		t.Fatalf("resolve got %q: %v", got, err)
+	}
+	wantResolved, err := filepath.EvalSymlinks(want)
+	if err != nil {
+		t.Fatalf("resolve want %q: %v", want, err)
+	}
+	if gotResolved != wantResolved {
+		t.Fatalf("expected DotfilesRoot %q, got %q", wantResolved, gotResolved)
+	}
+}
+
+func TestInit_StoresSymlinkResolvedDotfilesRoot(t *testing.T) {
+	home := newInitTestHome(t)
+	realRoot := filepath.Join(home, "real-dotfiles")
+	if err := os.MkdirAll(realRoot, 0o755); err != nil {
+		t.Fatalf("seed real dotfiles dir: %v", err)
+	}
+	linkRoot := filepath.Join(home, "dotfiles")
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	cmd := newRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"init", "--path", linkRoot})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute init: %v", err)
+	}
+
+	// Re-initializing through a different spelling of the same directory
+	// (a symlink, /tmp vs /private/tmp, …) must converge on one canonical
+	// root, or every recorded symlink would be seen as foreign and
+	// replaced on the next apply.
+	got := loadState(t, home).DotfilesRoot
+	want, err := filepath.EvalSymlinks(realRoot)
+	if err != nil {
+		t.Fatalf("resolve real root: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected the symlink-resolved root %q, got %q", want, got)
 	}
 }
 
@@ -95,10 +142,7 @@ func TestInit_PathFlagExpandsTilde(t *testing.T) {
 		t.Fatalf("execute init: %v", err)
 	}
 
-	got := loadState(t, home)
-	if got.DotfilesRoot != dotfilesRoot {
-		t.Fatalf("expected DotfilesRoot %q, got %q", dotfilesRoot, got.DotfilesRoot)
-	}
+	assertSameDir(t, loadState(t, home).DotfilesRoot, dotfilesRoot)
 }
 
 func TestInit_ProfileFlagSetsProfile(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"time"
 )
 
@@ -36,7 +38,7 @@ func Link(target, source, backupDir string) (LinkResult, error) {
 		if readErr != nil {
 			return LinkResult{}, fmt.Errorf("apply: readlink %s: %w", target, readErr)
 		}
-		if current == source {
+		if pathresolve.EqualPaths(current, source) {
 			return LinkResult{Target: target, Source: source, Skipped: true}, nil
 		}
 		return backupThenLink(target, source, backupDir)

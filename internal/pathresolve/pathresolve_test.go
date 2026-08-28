@@ -35,6 +35,27 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+func TestEqualPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "identical", a: "/dotfiles/git/.gitconfig", b: "/dotfiles/git/.gitconfig", want: true},
+		{name: "trailing slash", a: "/dotfiles/nvim/", b: "/dotfiles/nvim", want: true},
+		{name: "redundant components", a: "/dotfiles/git/../git/.gitconfig", b: "/dotfiles/git/.gitconfig", want: true},
+		{name: "double slashes", a: "/dotfiles//git/.gitconfig", b: "/dotfiles/git/.gitconfig", want: true},
+		{name: "different paths", a: "/dotfiles/git/.gitconfig", b: "/elsewhere/.gitconfig", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := EqualPaths(tt.a, tt.b); got != tt.want {
+				t.Fatalf("EqualPaths(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExpandHome(t *testing.T) {
 	tests := []struct {
 		name string
