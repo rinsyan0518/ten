@@ -104,6 +104,29 @@ git_name = "Taro Yamada"
     name = {{ .Vars.git_name }}
 ```
 
+テンプレートからは `.Ten.*` も参照できます — こちらはユーザーが定義する値ではなく、`ten` が apply 実行時に自分で解決する値です:
+
+| フィールド | 値 |
+|---|---|
+| `.Ten.OS` | `runtime.GOOS`(例: `darwin`, `linux`) |
+| `.Ten.Arch` | `runtime.GOARCH`(例: `arm64`, `amd64`) |
+| `.Ten.Hostname` | 実行中マシンのホスト名 |
+| `.Ten.Home` | 解決済みの `$HOME` |
+| `.Ten.Profile` | 有効なプロファイル(未設定なら空文字列) |
+| `.Ten.Tool` | テンプレートが属する `[tools.*]` の名前 |
+| `.Ten.DotfilesRoot` | dotfilesリポジトリの絶対パス |
+
+`.Ten.Home`/`.Ten.DotfilesRoot` はローカルの絶対パス(OSのユーザー名を含みうる)をそのまま埋め込みます。公開するファイルに描画結果を含める場合は注意してください。
+
+```
+# ~/dotfiles/ssh/config.tmpl
+{{ if eq .Ten.OS "darwin" }}
+UseKeychain yes
+{{ end }}
+Host *
+    HostName {{ .Ten.Hostname }}
+```
+
 ### 4. 適用する
 
 ```bash
@@ -156,7 +179,7 @@ flowchart TD
 enabled    = false                                                   # 省略時のデフォルトは true
 depends_on = ["git"]                                                 # 依存先のあとに、DAG順序で適用される
 links     = { "home:.gitconfig" = "git/.gitconfig" }                 # シンボリックリンク
-templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" } # text/template で描画される（{{ .Vars.key }}）
+templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" } # text/template で描画される（{{ .Vars.key }} / {{ .Ten.key }}）
 before = "echo before"                                                # このツールのリソースより前に実行するシェルコマンド
 once   = "echo once"                                                  # このツールが link/template を新たに管理した最初の1回だけ実行するシェルコマンド
 after  = "echo after"                                                 # あとに実行するシェルコマンド
