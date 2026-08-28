@@ -20,7 +20,7 @@ type fakeExecutor struct {
 	LinkFunc           func(target, source, backupDir string) (apply.LinkResult, error)
 	UnlinkFunc         func(req apply.UnlinkRequest) (apply.UnlinkResult, error)
 	RenderTemplateFunc func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error)
-	RunHookFunc        func(cmdStr string, out io.Writer) error
+	RunHookFunc        func(cmdStr, dir string, out io.Writer) error
 }
 
 func (f *fakeExecutor) Link(target, source, backupDir string) (apply.LinkResult, error) {
@@ -47,13 +47,13 @@ func (f *fakeExecutor) RenderTemplate(target, source string, vars map[string]str
 	return apply.TemplateResult{Target: target, Source: source}, nil
 }
 
-func (f *fakeExecutor) RunHook(cmdStr string, out io.Writer) error {
+func (f *fakeExecutor) RunHook(cmdStr, dir string, out io.Writer) error {
 	if cmdStr == "" {
 		return nil
 	}
 	f.calls = append(f.calls, "hook:"+cmdStr)
 	if f.RunHookFunc != nil {
-		return f.RunHookFunc(cmdStr, out)
+		return f.RunHookFunc(cmdStr, dir, out)
 	}
 	return nil
 }
@@ -163,6 +163,30 @@ func TestExecute_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
 	}
 }
 
+func TestExecute_RecordsTemplateContentHashInState(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:      "git",
+			Templates: []plan.TemplateStep{{Target: "/home/taro/.gitconfig.local", Source: "/dotfiles/git/tmpl", Action: plan.ActionCreate}},
+		}},
+	}
+	fx := &fakeExecutor{
+		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error) {
+			return apply.TemplateResult{Target: target, Source: source, ContentHash: "hash-of-render"}, nil
+		},
+	}
+
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := newState.ManagedResources["/home/taro/.gitconfig.local"].ContentHash; got != "hash-of-render" {
+		t.Fatalf("expected the rendered content hash recorded in state, got %q", got)
+	}
+}
+
 func TestExecute_RecordsExecutorReportedUpToDateTemplate(t *testing.T) {
 	pl := plan.Plan{
 		Tools: []plan.ToolPlan{{
@@ -253,7 +277,7 @@ func TestExecute_FailedOnceHookLeavesTargetsUntrackedSoOnceRefires(t *testing.T)
 	}
 	hookErr := errors.New("once failed")
 	fx := &fakeExecutor{
-		RunHookFunc: func(cmdStr string, out io.Writer) error {
+		RunHookFunc: func(cmdStr, dir string, out io.Writer) error {
 			if cmdStr == "exit 1" {
 				return hookErr
 			}
@@ -293,7 +317,7 @@ func TestExecute_FailedOnceHookKeepsPreviouslyTrackedTargets(t *testing.T) {
 	}}
 	hookErr := errors.New("once failed")
 	fx := &fakeExecutor{
-		RunHookFunc: func(cmdStr string, out io.Writer) error {
+		RunHookFunc: func(cmdStr, dir string, out io.Writer) error {
 			if cmdStr == "exit 1" {
 				return hookErr
 			}
@@ -327,7 +351,13 @@ func TestExecute_ExecutesPrunesBeforeToolsAndUpdatesState(t *testing.T) {
 		"/home/taro/.config/old": {Tool: "old", Type: "symlink", Source: "/dotfiles/old/x"},
 	}}
 
-	fx := &fakeExecutor{}
+	var gotBackupRoot string
+	fx := &fakeExecutor{
+		UnlinkFunc: func(req apply.UnlinkRequest) (apply.UnlinkResult, error) {
+			gotBackupRoot = req.BackupRoot
+			return apply.UnlinkResult{Target: req.Target}, nil
+		},
+	}
 	result, newState, err := apply.Execute(apply.ExecParams{
 		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
 	})
@@ -343,6 +373,9 @@ func TestExecute_ExecutesPrunesBeforeToolsAndUpdatesState(t *testing.T) {
 	}
 	if _, ok := newState.ManagedResources["/home/taro/.config/old"]; ok {
 		t.Fatalf("pruned resource must leave state")
+	}
+	if gotBackupRoot != "/b" {
+		t.Fatalf("prune must pass the backup root for post-restore cleanup, got %q", gotBackupRoot)
 	}
 }
 

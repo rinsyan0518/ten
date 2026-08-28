@@ -48,6 +48,15 @@ func runInit(cmd *cobra.Command, path, profile string) error {
 	} else if !info.IsDir() {
 		return fmt.Errorf("init: %s is not an existing directory", absPath)
 	}
+	// Store the symlink-resolved form so different spellings of the same
+	// directory (a symlinked path, /tmp vs /private/tmp on macOS, …)
+	// converge on one canonical dotfiles_root. Symlink identity checks
+	// compare against this root; re-initializing through another spelling
+	// would otherwise make every recorded symlink look foreign and get
+	// replaced on the next apply.
+	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = resolved
+	}
 
 	statePath := statePathFor(pathresolve.FromOS(home))
 	st, err := state.Load(statePath)

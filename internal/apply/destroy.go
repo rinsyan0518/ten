@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/rinsyan0518/ten/internal/pathresolve"
+	"github.com/rinsyan0518/ten/internal/state"
 )
 
 // UnlinkRequest describes a single managed resource to take back out of
@@ -15,6 +19,14 @@ type UnlinkRequest struct {
 	Type       string // "symlink" | "template"
 	Source     string
 	BackupPath string
+	// ContentHash is the recorded hash of the template output ten last
+	// wrote ("template" resources only; empty on pre-hashing records).
+	ContentHash string
+	// BackupRoot bounds the empty-directory cleanup after a restore
+	// (the backup dir under the XDG state dir): directories emptied by moving the
+	// backup away are removed up to and including this root, never
+	// beyond it. Empty disables the cleanup.
+	BackupRoot string
 }
 
 // UnlinkResult describes the outcome of removing or restoring a single
@@ -33,12 +45,11 @@ type UnlinkResult struct {
 // req.BackupPath is non-empty the backup is restored over the target,
 // otherwise the target is deleted.
 //
-// For "symlink" resources the target is verified first: it must still be
-// a symlink pointing at req.Source. If it isn't, the user has replaced
-// ten's resource with something of their own and Unlink refuses to touch
-// it (Skipped=true) instead of silently destroying it. Template output is
-// a plain file with no equivalent marker, so it cannot be verified this
-// way and is removed as recorded.
+// The target is verified first (see verifyOwned): a symlink must still
+// point at req.Source, and template output must still hash to
+// req.ContentHash. If it doesn't, the user has replaced ten's resource
+// with something of their own and Unlink refuses to touch it
+// (Skipped=true) instead of silently destroying it.
 func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 	info, err := os.Lstat(req.Target)
 	switch {
@@ -73,6 +84,13 @@ func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 		if err := os.Rename(req.BackupPath, req.Target); err != nil {
 			return UnlinkResult{}, fmt.Errorf("apply: restore backup %s -> %s: %w", req.BackupPath, req.Target, err)
 		}
+		// Moving the backup away may have emptied its timestamp directory
+		// (and mirrored path components under it); sweep those so
+		// the backup root doesn't accumulate empty skeletons forever. Best
+		// effort — a failure here never fails the restore itself.
+		if req.BackupRoot != "" {
+			pruneEmptyDirs(filepath.Dir(req.BackupPath), req.BackupRoot)
+		}
 		return UnlinkResult{Target: req.Target, Restored: true}, nil
 	}
 
@@ -82,22 +100,58 @@ func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 	return UnlinkResult{Target: req.Target}, nil
 }
 
+// pruneEmptyDirs removes dir and then each parent in turn, stopping at
+// the first directory that isn't empty (os.Remove refuses non-empty
+// directories) and never climbing past root. root itself is removed too
+// when it ends up empty.
+func pruneEmptyDirs(dir, root string) {
+	root = filepath.Clean(root)
+	for dir = filepath.Clean(dir); ; dir = filepath.Dir(dir) {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return // outside root — never touch anything up here
+		}
+		if err := os.Remove(dir); err != nil {
+			return // not empty (or already gone with a non-empty parent)
+		}
+		if dir == root {
+			return
+		}
+	}
+}
+
 // verifyOwned returns an empty string if the existing target still looks
 // like the resource ten recorded, or a human-readable reason if it does
-// not.
+// not. A symlink is verified by its destination; a template by the hash
+// of the content ten last wrote (records from before content hashing
+// carry no hash and pass unverified, as they always did).
 func verifyOwned(req UnlinkRequest, info os.FileInfo) string {
-	if req.Type != "symlink" {
-		return ""
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		return "no longer a symlink created by ten"
-	}
-	dest, err := os.Readlink(req.Target)
-	if err != nil {
-		return fmt.Sprintf("could not read symlink (%v)", err)
-	}
-	if dest != req.Source {
-		return fmt.Sprintf("symlink now points at %s, not %s", dest, req.Source)
+	switch req.Type {
+	case "symlink":
+		if info.Mode()&os.ModeSymlink == 0 {
+			return "no longer a symlink created by ten"
+		}
+		dest, err := os.Readlink(req.Target)
+		if err != nil {
+			return fmt.Sprintf("could not read symlink (%v)", err)
+		}
+		if !pathresolve.EqualPaths(dest, req.Source) {
+			return fmt.Sprintf("symlink now points at %s, not %s", dest, req.Source)
+		}
+	case "template":
+		if req.ContentHash == "" {
+			return ""
+		}
+		if !info.Mode().IsRegular() {
+			return "no longer a regular file written by ten"
+		}
+		content, err := os.ReadFile(req.Target)
+		if err != nil {
+			return fmt.Sprintf("could not read file (%v)", err)
+		}
+		if state.HashContent(content) != req.ContentHash {
+			return "content changed since ten wrote it"
+		}
 	}
 	return ""
 }

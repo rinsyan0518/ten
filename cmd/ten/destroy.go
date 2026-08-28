@@ -31,7 +31,8 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("destroy: resolve home dir: %w", err)
 	}
 
-	st, statePath, err := loadBootstrap(pathresolve.FromOS(home))
+	env := pathresolve.FromOS(home)
+	st, statePath, err := loadBootstrap(env)
 	if err != nil {
 		return fmt.Errorf("destroy: %w", err)
 	}
@@ -48,10 +49,11 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	}
 
 	result, remaining, runErr := apply.ExecuteDestroy(apply.DestroyExecParams{
-		Plan:     dp,
-		Current:  st,
-		Out:      cmd.OutOrStdout(),
-		Executor: apply.NewOSExecutor(),
+		Plan:      dp,
+		Current:   st,
+		BackupDir: backupDirFor(env),
+		Out:       cmd.OutOrStdout(),
+		Executor:  apply.NewOSExecutor(),
 	})
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatDestroyPlan(result))
 

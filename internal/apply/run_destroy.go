@@ -11,10 +11,13 @@ import (
 
 // DestroyExecParams configures a single execution of a destroy plan.
 type DestroyExecParams struct {
-	Plan     plan.DestroyPlan
-	Current  state.State
-	Out      io.Writer
-	Executor Executor
+	Plan    plan.DestroyPlan
+	Current state.State
+	// BackupDir bounds the empty-directory cleanup after each restored
+	// backup (the backup dir under the XDG state dir); empty disables the cleanup.
+	BackupDir string
+	Out       io.Writer
+	Executor  Executor
 }
 
 // DestroyEntry is one resource destroy took back out of ten's control,
@@ -65,10 +68,12 @@ func ExecuteDestroy(p DestroyExecParams) (DestroyResult, state.State, error) {
 			}
 			res := p.Current.ManagedResources[step.Target]
 			result, err := p.Executor.Unlink(UnlinkRequest{
-				Target:     step.Target,
-				Type:       step.Type,
-				Source:     res.Source,
-				BackupPath: step.BackupPath,
+				Target:      step.Target,
+				Type:        step.Type,
+				Source:      res.Source,
+				BackupPath:  step.BackupPath,
+				ContentHash: res.ContentHash,
+				BackupRoot:  p.BackupDir,
 			})
 			if err != nil {
 				if len(outcome.Entries) > 0 {

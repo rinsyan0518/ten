@@ -16,6 +16,16 @@ func statePathFor(env pathresolve.Env) string {
 	return filepath.Join(env.XDGStateHome, "ten", "ten.state.json")
 }
 
+// backupDirFor returns the root under which apply stores backups of
+// files it displaces. It lives next to ten.state.json — whose
+// backup_path entries are the only index into it, so the two share a
+// lifecycle — and deliberately not in $HOME, which ten manages but
+// should never litter with its own artifacts. Backups recorded under an
+// older root keep restoring fine: state stores absolute paths.
+func backupDirFor(env pathresolve.Env) string {
+	return filepath.Join(env.XDGStateHome, "ten", "backup")
+}
+
 // loadBootstrap reads ten.state.json from its fixed XDG state location
 // and returns it along with the path it was read from (so callers can
 // save back to the same place). It errors if dotfiles_root has never

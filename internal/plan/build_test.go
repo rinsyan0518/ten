@@ -1,6 +1,7 @@
 package plan_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,13 +12,23 @@ import (
 )
 
 // fakeInspector is a read-only filesystem double: entries maps a path to
-// what Lstat would see. Paths absent from entries simply don't exist.
+// what Lstat would see, files maps a path to its regular-file content.
+// Paths absent from entries simply don't exist.
 type fakeInspector struct {
 	entries map[string]plan.Entry
+	files   map[string][]byte
 }
 
 func (f *fakeInspector) Inspect(path string) (plan.Entry, error) {
 	return f.entries[path], nil
+}
+
+func (f *fakeInspector) ReadFile(path string) ([]byte, error) {
+	content, ok := f.files[path]
+	if !ok {
+		return nil, fmt.Errorf("fakeInspector: no file at %s", path)
+	}
+	return content, nil
 }
 
 func testBuildEnv() pathresolve.Env {
@@ -68,6 +79,7 @@ func TestBuild_LinkActions(t *testing.T) {
 	}{
 		{name: "missing target is created", entry: plan.Entry{}, want: plan.ActionCreate},
 		{name: "correct symlink is a noop", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: source}, want: plan.ActionNoop},
+		{name: "symlink differing only in path spelling is a noop", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: "/dotfiles/git/../git/.gitconfig"}, want: plan.ActionNoop},
 		{name: "symlink elsewhere is replaced", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: "/elsewhere"}, want: plan.ActionReplace},
 		{name: "regular file is replaced", entry: plan.Entry{Exists: true}, want: plan.ActionReplace},
 	}
@@ -218,14 +230,50 @@ func TestBuild_PruneActions(t *testing.T) {
 		name       string
 		res        state.Resource
 		entries    map[string]plan.Entry
+		files      map[string][]byte
 		want       plan.Action
 		wantReason string
 		wantErr    string
 	}{
 		{
+			name:    "owned template with matching content hash is removed",
+			res:     state.Resource{Tool: "old", Type: "template", Source: source, ContentHash: state.HashContent([]byte("rendered"))},
+			entries: map[string]plan.Entry{target: {Exists: true}},
+			files:   map[string][]byte{target: []byte("rendered")},
+			want:    plan.ActionRemove,
+		},
+		{
+			name:       "template whose content changed since ten wrote it is skipped",
+			res:        state.Resource{Tool: "old", Type: "template", Source: source, ContentHash: state.HashContent([]byte("rendered"))},
+			entries:    map[string]plan.Entry{target: {Exists: true}},
+			files:      map[string][]byte{target: []byte("edited by the user")},
+			want:       plan.ActionSkip,
+			wantReason: "content changed",
+		},
+		{
+			name:       "template target replaced by a symlink is skipped",
+			res:        state.Resource{Tool: "old", Type: "template", Source: source, ContentHash: state.HashContent([]byte("rendered"))},
+			entries:    map[string]plan.Entry{target: {Exists: true, IsSymlink: true, LinkDest: "/elsewhere"}},
+			want:       plan.ActionSkip,
+			wantReason: "no longer a regular file",
+		},
+		{
+			name:    "legacy template record without a hash is removed unverified",
+			res:     state.Resource{Tool: "old", Type: "template", Source: source},
+			entries: map[string]plan.Entry{target: {Exists: true}},
+			files:   map[string][]byte{target: []byte("anything")},
+			want:    plan.ActionRemove,
+		},
+		{
 			name:    "owned symlink with no backup is removed",
 			res:     state.Resource{Tool: "old", Type: "symlink", Source: source},
 			entries: map[string]plan.Entry{target: {Exists: true, IsSymlink: true, LinkDest: source}},
+			want:    plan.ActionRemove,
+		},
+		{
+			name:    "owned symlink differing only in path spelling is still owned",
+			res:     state.Resource{Tool: "old", Type: "symlink", Source: source},
+			entries: map[string]plan.Entry{target: {Exists: true, IsSymlink: true, LinkDest: "/dotfiles/old/../old/x"}},
 			want:    plan.ActionRemove,
 		},
 		{
@@ -275,7 +323,7 @@ func TestBuild_PruneActions(t *testing.T) {
 				Enabled:      map[string]bool{},
 			}
 			current := state.State{ManagedResources: map[string]state.Resource{target: tt.res}}
-			fx := &fakeInspector{entries: tt.entries}
+			fx := &fakeInspector{entries: tt.entries, files: tt.files}
 
 			p, err := plan.Build(plan.BuildParams{Merged: merged, Current: current, Env: testBuildEnv(), Inspector: fx})
 			if tt.wantErr != "" {

@@ -9,7 +9,7 @@ English | [日本語](README.ja.md)
 `ten` is a Go CLI dotfiles manager. Its simple, declarative design doesn't lock you into a particular way of working, so you can move to another tool anytime you need to.
 
 - **Idempotent** — running it repeatedly always converges to the same result
-- **Safe backups** — existing files are backed up before anything is overwritten
+- **Safe backups** — existing files are backed up before anything is overwritten, under `$XDG_STATE_HOME/ten/backup` next to ten's state (never as a dotfile in `$HOME`)
 - **Dependency resolution** — tools apply in DAG order via `depends_on`
 - **Per-machine differences** — profile-specific files plus local overrides
 - **Stateful garbage collection** — resources removed from config are automatically cleaned up
@@ -241,7 +241,7 @@ flowchart TD
     Post -->|zero exit or unset| Next["Continue to next tool"]
 ```
 
-`before` and `after` run unconditionally for every enabled tool, in DAG order — even when the tool's resources didn't change, and even for a tool with hooks but no `links`/`templates`. `once` runs only when this apply run causes the tool to newly manage at least one `links`/`templates` target — one that wasn't already recorded in `ten.state.json` when the run started; it is independent of whether the underlying symlink/template operation was itself a no-op, and it never fires for a tool with no `links`/`templates`. Under `--dry-run`, hooks are shown in the plan but never executed (the `once` eligibility check itself still runs, since it only reads state, not the filesystem). A non-zero exit from `before`, `once`, or `after` stops `ten apply` immediately; tools later in DAG order do not run.
+Hooks run through `sh -c` with the dotfiles repository as their working directory, regardless of where `ten apply` was invoked. `before` and `after` run unconditionally for every enabled tool, in DAG order — even when the tool's resources didn't change, and even for a tool with hooks but no `links`/`templates`. `once` runs only when this apply run causes the tool to newly manage at least one `links`/`templates` target — one that wasn't already recorded in `ten.state.json` when the run started; it is independent of whether the underlying symlink/template operation was itself a no-op, and it never fires for a tool with no `links`/`templates`. Under `--dry-run`, hooks are shown in the plan but never executed (the `once` eligibility check itself still runs, since it only reads state, not the filesystem). A non-zero exit from `before`, `once`, or `after` stops `ten apply` immediately; tools later in DAG order do not run.
 
 Use `enabled` to turn a tool on or off per layer without repeating its other fields — e.g. define a tool disabled by default in `ten.toml` and flip it on for one profile:
 
@@ -271,6 +271,8 @@ ten destroy [--dry-run]                       Remove everything ten manages usin
 ```
 
 Neither `ten apply` nor `ten destroy` supports targeting individual tools — what gets applied or destroyed is controlled declaratively via each tool's `enabled` field.
+
+Before removing anything, `ten destroy` (and apply's pruning) verifies each resource is still the one ten created: a symlink must still point at its recorded source, and template output must still match the content ten last wrote. Anything you've since replaced or edited is skipped with a warning instead of deleted.
 
 `ten destroy` never runs hooks — `depends_on` only orders hook execution during `apply`, and destroy ignores it entirely. It also doesn't delete `ten.state.json`: after removing or restoring every managed resource, it rewrites the file with an empty managed-resources record, keeping the bootstrap fields (`dotfiles_root`/`profile`) set by `ten init`.
 

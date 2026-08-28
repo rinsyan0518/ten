@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/apply"
+	"github.com/rinsyan0518/ten/internal/state"
 )
 
 func writeSource(t *testing.T, dir, content string) string {
@@ -36,6 +37,9 @@ func TestRenderTemplate_RendersVarsAndTenCreatingParentDirs(t *testing.T) {
 	}
 	if result.BackupPath != "" || result.Skipped {
 		t.Fatalf("fresh render should have no backup and not be skipped: %+v", result)
+	}
+	if result.ContentHash != state.HashContent(got) {
+		t.Fatalf("result should carry the rendered content's hash, got %q", result.ContentHash)
 	}
 }
 
@@ -102,6 +106,12 @@ func TestRenderTemplate_UnchangedOutputIsSkippedWithoutRewrite(t *testing.T) {
 	}
 	if !result.Skipped {
 		t.Fatalf("expected Skipped for identical content, got %+v", result)
+	}
+	// The hash must be reported even on the skip path, so state entries
+	// written before content hashing existed get backfilled by an
+	// idempotent re-apply without rewriting the file.
+	if result.ContentHash != state.HashContent([]byte("same content")) {
+		t.Fatalf("skip path should still report the content hash, got %q", result.ContentHash)
 	}
 	after, err := os.Stat(target)
 	if err != nil {

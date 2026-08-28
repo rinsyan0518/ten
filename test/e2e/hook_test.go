@@ -199,3 +199,25 @@ after = "touch `+home+`/zzz-marker"
 		t.Fatalf("expected the later tool zzz's after hook to never run (fail-fast)")
 	}
 }
+
+func TestApply_HooksRunInTheDotfilesRoot(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	// The hook's behavior must not depend on where ten was invoked; its
+	// cwd is pinned to the dotfiles root, so a relative path in a hook
+	// always means "relative to the repo".
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.probe]
+before = "pwd > `+home+`/hook-cwd"
+`)
+
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("ten apply failed (exit %d): %s", code, out)
+	}
+	if got := strings.TrimSpace(sb.ReadFile(t, home+"/hook-cwd")); got != home+"/dotfiles" {
+		t.Fatalf("hook ran with cwd %q, want %q", got, home+"/dotfiles")
+	}
+}

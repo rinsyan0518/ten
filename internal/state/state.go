@@ -1,7 +1,10 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,10 +16,34 @@ type Resource struct {
 	Type       string `json:"type"` // "symlink" | "template"
 	Source     string `json:"source"`
 	BackupPath string `json:"backup_path,omitempty"`
+	// ContentHash is HashContent of the template output ten last wrote
+	// ("template" resources only). It lets destroy/prune verify the file
+	// is still ten's own before deleting it, the way a symlink's
+	// destination identifies a "symlink" resource. Empty on records
+	// written before content hashing existed; such templates are removed
+	// unverified, as they always were.
+	ContentHash string `json:"content_hash,omitempty"`
 }
+
+// HashContent returns the hash used in Resource.ContentHash for the
+// given file content: sha256, hex-encoded.
+func HashContent(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+// CurrentVersion is the schema version this build of ten writes.
+// History: 0 = files written before the field existed; 1 = the field
+// itself, no other change. Bump it only when the schema changes in a
+// way an older ten must not misread.
+const CurrentVersion = 1
 
 // State is the parsed contents of ten.state.json.
 type State struct {
+	// Version is the schema version of the file this State was loaded
+	// from (0 for pre-versioning files). Save stamps CurrentVersion
+	// regardless of the value here.
+	Version          int                 `json:"version,omitempty"`
 	DotfilesRoot     string              `json:"dotfiles_root,omitempty"`
 	Profile          string              `json:"profile,omitempty"`
 	LastApplied      time.Time           `json:"last_applied"`
@@ -37,6 +64,12 @@ func Load(path string) (State, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return State{}, err
 	}
+	// A version this build doesn't know was written by a newer ten;
+	// guessing at its meaning could destroy resources the newer schema
+	// tracks differently. Refuse instead of misreading it.
+	if s.Version > CurrentVersion {
+		return State{}, fmt.Errorf("state file %s has schema version %d, written by a newer ten (this build understands up to %d); upgrade ten", path, s.Version, CurrentVersion)
+	}
 	if s.ManagedResources == nil {
 		s.ManagedResources = map[string]Resource{}
 	}
@@ -54,6 +87,7 @@ func Save(path string, s State) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	s.Version = CurrentVersion
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err

@@ -42,11 +42,12 @@ type Entry struct {
 }
 
 // Inspector is the read-only filesystem probe Build plans against. The
-// real implementation lstats the disk; tests substitute a fake. Build
-// performs no writes through it — a plan is a prediction, never a side
-// effect.
+// real implementation lstats and reads the disk; tests substitute a
+// fake. Build performs no writes through it — a plan is a prediction,
+// never a side effect.
 type Inspector interface {
 	Inspect(path string) (Entry, error)
+	ReadFile(path string) ([]byte, error)
 }
 
 // LinkStep is one planned symlink.
@@ -198,7 +199,7 @@ func planLink(d Target, ins Inspector) (LinkStep, error) {
 	switch {
 	case !entry.Exists:
 		step.Action = ActionCreate
-	case entry.IsSymlink && entry.LinkDest == d.Source:
+	case entry.IsSymlink && pathresolve.EqualPaths(entry.LinkDest, d.Source):
 		step.Action = ActionNoop
 	default:
 		step.Action = ActionReplace
@@ -232,19 +233,37 @@ func planPrune(target string, res state.Resource, ins Inspector) (PruneStep, err
 	if err != nil {
 		return PruneStep{}, fmt.Errorf("inspect %s: %w", target, err)
 	}
-	// Only a symlink can be verified as still being ten's: it must still
-	// point at the recorded source. Template output is a plain file with
-	// no such marker. A missing target skips verification — there is
-	// nothing left to protect.
+	// Verify the target is still the resource ten recorded before
+	// planning its removal: a symlink by its destination, a template by
+	// the hash of the content ten last wrote (records from before
+	// content hashing carry no hash and pass unverified, as they always
+	// did). A missing target skips verification — there is nothing left
+	// to protect.
 	if entry.Exists && res.Type == "symlink" {
 		switch {
 		case !entry.IsSymlink:
 			step.Action = ActionSkip
 			step.SkipReason = "no longer a symlink created by ten"
 			return step, nil
-		case entry.LinkDest != res.Source:
+		case !pathresolve.EqualPaths(entry.LinkDest, res.Source):
 			step.Action = ActionSkip
 			step.SkipReason = fmt.Sprintf("symlink now points at %s, not %s", entry.LinkDest, res.Source)
+			return step, nil
+		}
+	}
+	if entry.Exists && res.Type == "template" && res.ContentHash != "" {
+		if entry.IsSymlink {
+			step.Action = ActionSkip
+			step.SkipReason = "no longer a regular file written by ten"
+			return step, nil
+		}
+		content, err := ins.ReadFile(target)
+		if err != nil {
+			return PruneStep{}, fmt.Errorf("read %s: %w", target, err)
+		}
+		if state.HashContent(content) != res.ContentHash {
+			step.Action = ActionSkip
+			step.SkipReason = "content changed since ten wrote it"
 			return step, nil
 		}
 	}

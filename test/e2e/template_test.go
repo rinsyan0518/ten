@@ -57,7 +57,7 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 	if code != 0 {
 		t.Fatalf("ten apply failed (exit %d): %s", code, out)
 	}
-	findOut, _, code := sb.Exec(t, "find "+home+"/.ten_backup -name .gitconfig.local")
+	findOut, _, code := sb.Exec(t, "find "+home+"/.local/state/ten/backup -name .gitconfig.local")
 	if code != 0 || strings.TrimSpace(findOut) == "" {
 		t.Fatalf("expected a backup of the old .gitconfig.local, find output: %q", findOut)
 	}
@@ -85,7 +85,7 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 		t.Fatalf("second apply failed")
 	}
 
-	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -type f 2>/dev/null")
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.local/state/ten/backup -type f 2>/dev/null")
 	if strings.TrimSpace(findOut) != "" {
 		t.Fatalf("expected no backup from re-rendering a ten-managed template, found: %q", findOut)
 	}

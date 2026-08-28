@@ -57,9 +57,13 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected .gitconfig to become a symlink, got isLink=%v target=%q ok=%v", isLink, target, ok)
 	}
 
-	findOut, _, code := sb.Exec(t, "find "+home+"/.ten_backup -name .gitconfig")
+	// Backups live under the XDG state dir, never as a dotfile in $HOME.
+	if _, _, ok := sb.Lstat(t, home+"/.ten_backup"); ok {
+		t.Fatalf("apply must not create ~/.ten_backup")
+	}
+	findOut, _, code := sb.Exec(t, "find "+home+"/.local/state/ten/backup -name .gitconfig")
 	if code != 0 || strings.TrimSpace(findOut) == "" {
-		t.Fatalf("expected a backup of the old .gitconfig under %s/.ten_backup, find output: %q", home, findOut)
+		t.Fatalf("expected a backup of the old .gitconfig under %s/.local/state/ten/backup, find output: %q", home, findOut)
 	}
 	content := sb.ReadFile(t, strings.TrimSpace(findOut))
 	if content != "old local config\n" {
@@ -92,7 +96,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected the already-synced git symlink to still be shown as up to date, got output: %s", out)
 	}
 
-	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -type f 2>/dev/null")
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.local/state/ten/backup -type f 2>/dev/null")
 	if strings.TrimSpace(findOut) != "" {
 		t.Fatalf("expected no backup from idempotent second apply, found: %q", findOut)
 	}
@@ -362,10 +366,10 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 		t.Fatalf("unexpected rendered content: %q", got)
 	}
 
-	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -name .gitconfig.local")
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.local/state/ten/backup -name .gitconfig.local")
 	backup := strings.TrimSpace(findOut)
 	if backup == "" {
-		t.Fatalf("expected the replaced symlink to be backed up under .ten_backup, find output: %q", findOut)
+		t.Fatalf("expected the replaced symlink to be backed up under the XDG backup dir, find output: %q", findOut)
 	}
 	if _, _, code := sb.Exec(t, "test -L "+backup); code != 0 {
 		t.Fatalf("expected the backup %s to be the old symlink", backup)
@@ -559,5 +563,115 @@ templates = { "home:.zzz" = "z/missing.tmpl" }
 	}
 	if !strings.Contains(out, "create symlink") || !strings.Contains(out, home+"/.aaa") {
 		t.Fatalf("expected the failed run to still report the symlink it created, got: %s", out)
+	}
+}
+
+func TestApply_FailedRunDoesNotUpdateLastApplied(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+	stateBefore := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+
+	// A tool whose after hook fails: the run errors, and last_applied
+	// must keep describing the last successful apply, not this one.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+after = "exit 1"
+`)
+	if _, code := sb.Run(t, home, "apply"); code == 0 {
+		t.Fatalf("expected the second apply to fail")
+	}
+	stateAfter := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+
+	lastApplied := func(s string) string {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "last_applied") {
+				return strings.TrimSpace(line)
+			}
+		}
+		t.Fatalf("no last_applied line in state: %s", s)
+		return ""
+	}
+	if got, want := lastApplied(stateAfter), lastApplied(stateBefore); got != want {
+		t.Fatalf("last_applied changed on a failed run: got %s, want %s", got, want)
+	}
+}
+
+func TestApply_ReinitThroughSymlinkedRootKeepsLinksUpToDate(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	realRoot := home + "/real-dotfiles"
+	sb.Init(t, home, realRoot)
+	sb.WriteFile(t, realRoot+"/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, realRoot+"/git/.gitconfig", "x\n")
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+
+	// Re-initialize through a symlinked spelling of the same directory.
+	// init stores the resolved root, so the existing links must still be
+	// recognized as ten's own instead of being backed up and re-created.
+	sb.Exec(t, "ln -s "+realRoot+" "+home+"/alias-dotfiles")
+	if out, code := sb.Run(t, home, "init", "--path", home+"/alias-dotfiles"); code != 0 {
+		t.Fatalf("re-init through symlink failed (exit %d): %s", code, out)
+	}
+
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+	if strings.Contains(out, "create symlink") {
+		t.Fatalf("expected no re-created symlinks after re-init via symlink, got: %s", out)
+	}
+	if !strings.Contains(out, "up to date") {
+		t.Fatalf("expected the existing link to be reported up to date, got: %s", out)
+	}
+}
+
+func TestApply_RefusesStateWrittenByANewerTen(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "x\n")
+
+	statePath := home + "/.local/state/ten/ten.state.json"
+	stateJSON := sb.ReadFile(t, statePath)
+	future := strings.Replace(stateJSON, `"version": 1,`, `"version": 99,`, 1)
+	if future == stateJSON {
+		t.Fatalf("failed to bump version in state: %s", stateJSON)
+	}
+	// WriteFile's heredoc requires a trailing newline to terminate cleanly.
+	sb.WriteFile(t, statePath, future+"\n")
+
+	stdout, stderr, code := sb.Exec(t, "HOME="+home+" ten apply")
+	if code == 0 {
+		t.Fatalf("expected apply to refuse a newer state schema, got exit 0: %s", stdout)
+	}
+	if !strings.Contains(stdout+stderr, "newer") {
+		t.Fatalf("expected the error to explain the file comes from a newer ten, got: %s%s", stdout, stderr)
+	}
+	// The unreadable-by-design state must not have been rewritten.
+	if got := sb.ReadFile(t, statePath); !strings.Contains(got, `"version": 99`) {
+		t.Fatalf("state file must be left untouched, got: %s", got)
 	}
 }

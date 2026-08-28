@@ -3,6 +3,7 @@ package state_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,56 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 	}
 	if got.ManagedResources["/home/taro/.config/nvim"] != want.ManagedResources["/home/taro/.config/nvim"] {
 		t.Fatalf("resource mismatch: got %+v", got.ManagedResources)
+	}
+}
+
+func TestSave_StampsCurrentSchemaVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ten", "ten.state.json")
+
+	if err := state.Save(path, state.State{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := state.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Version != state.CurrentVersion {
+		t.Fatalf("Version = %d, want %d", got.Version, state.CurrentVersion)
+	}
+}
+
+func TestLoad_AcceptsLegacyFileWithoutVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ten.state.json")
+	legacy := `{"dotfiles_root": "/home/taro/dotfiles", "last_applied": "2026-08-11T22:44:05Z", "managed_resources": {}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+
+	got, err := state.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Version != 0 || got.DotfilesRoot != "/home/taro/dotfiles" {
+		t.Fatalf("legacy state misread: %+v", got)
+	}
+}
+
+func TestLoad_RejectsNewerSchemaVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ten.state.json")
+	future := `{"version": 99, "managed_resources": {}}`
+	if err := os.WriteFile(path, []byte(future), 0o644); err != nil {
+		t.Fatalf("seed future state: %v", err)
+	}
+
+	_, err := state.Load(path)
+	if err == nil {
+		t.Fatalf("expected an error for a state file from a newer ten")
+	}
+	if !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("error should explain the file comes from a newer ten, got: %v", err)
 	}
 }
 

@@ -16,7 +16,9 @@ type Executor interface {
 	// content already equals the render is left untouched
 	// (TemplateResult.Skipped).
 	RenderTemplate(target, source string, vars map[string]string, ten SystemInfo, backupDir string, backup bool) (TemplateResult, error)
-	RunHook(cmdStr string, out io.Writer) error
+	// RunHook runs cmdStr through a shell with dir as its working
+	// directory (the dotfiles root).
+	RunHook(cmdStr, dir string, out io.Writer) error
 }
 
 type osExecutor struct{}
@@ -37,8 +39,8 @@ func (osExecutor) RenderTemplate(target, source string, vars map[string]string, 
 	return RenderTemplate(target, source, vars, ten, backupDir, backup)
 }
 
-func (osExecutor) RunHook(cmdStr string, out io.Writer) error {
-	return RunHook(cmdStr, out)
+func (osExecutor) RunHook(cmdStr, dir string, out io.Writer) error {
+	return RunHook(cmdStr, dir, out)
 }
 
 var _ Executor = osExecutor{}
