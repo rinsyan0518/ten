@@ -14,7 +14,7 @@ type DestroyExecParams struct {
 	Plan    plan.DestroyPlan
 	Current state.State
 	// BackupDir bounds the empty-directory cleanup after each restored
-	// backup (typically ~/.ten_backup); empty disables the cleanup.
+	// backup (the backup dir under the XDG state dir); empty disables the cleanup.
 	BackupDir string
 	Out       io.Writer
 	Executor  Executor

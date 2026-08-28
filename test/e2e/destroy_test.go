@@ -245,7 +245,7 @@ links = { "home:.c" = "c/.c" }
 	sabotaged := strings.Replace(stateJSON,
 		`"source": "`+home+`/dotfiles/b/.b"`,
 		`"source": "`+home+`/dotfiles/b/.b",
-      "backup_path": "`+home+`/.ten_backup/nonexistent/bogus"`,
+      "backup_path": "`+home+`/.local/state/ten/backup/nonexistent/bogus"`,
 		1)
 	if sabotaged == stateJSON {
 		t.Fatalf("failed to sabotage state.json: source line for b not found in %s", stateJSON)
@@ -316,7 +316,7 @@ links = { "xdg:nvim" = "nvim" }
 	}
 	// The backup source is the user's only pre-flight confirmation of what
 	// an irreversible restore is about to move back.
-	if !strings.Contains(out, home+"/.gitconfig <- "+home+"/.ten_backup/") {
+	if !strings.Contains(out, home+"/.gitconfig <- "+home+"/.local/state/ten/backup/") {
 		t.Fatalf("expected the restore line to name the backup it comes from, got: %s", out)
 	}
 }
@@ -400,10 +400,10 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 	if got := sb.ReadFile(t, home+"/.gitconfig"); got != "original\n" {
 		t.Fatalf("expected the backup restored, got %q", got)
 	}
-	// The restore emptied the only backup; the whole ~/.ten_backup tree
+	// The restore emptied the only backup; the whole backup tree
 	// must be gone instead of accumulating empty timestamp skeletons.
-	if _, _, ok := sb.Lstat(t, home+"/.ten_backup"); ok {
-		out, _, _ := sb.Exec(t, "find "+home+"/.ten_backup")
+	if _, _, ok := sb.Lstat(t, home+"/.local/state/ten/backup"); ok {
+		out, _, _ := sb.Exec(t, "find "+home+"/.local/state/ten/backup")
 		t.Fatalf("expected the emptied backup root to be removed, found:\n%s", out)
 	}
 }

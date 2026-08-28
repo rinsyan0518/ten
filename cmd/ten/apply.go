@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/rinsyan0518/ten/internal/apply"
@@ -73,7 +72,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	result, newState, runErr := apply.Execute(apply.ExecParams{
 		Plan:      pl,
 		Current:   current,
-		BackupDir: filepath.Join(home, ".ten_backup"),
+		BackupDir: backupDirFor(env),
 		Vars:      merged.Vars,
 		Ten:       ten,
 		HookDir:   merged.DotfilesRoot,

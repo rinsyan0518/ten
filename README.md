@@ -9,7 +9,7 @@ English | [日本語](README.ja.md)
 `ten` is a Go CLI dotfiles manager. Its simple, declarative design doesn't lock you into a particular way of working, so you can move to another tool anytime you need to.
 
 - **Idempotent** — running it repeatedly always converges to the same result
-- **Safe backups** — existing files are backed up before anything is overwritten
+- **Safe backups** — existing files are backed up before anything is overwritten, under `$XDG_STATE_HOME/ten/backup` next to ten's state (never as a dotfile in `$HOME`)
 - **Dependency resolution** — tools apply in DAG order via `depends_on`
 - **Per-machine differences** — profile-specific files plus local overrides
 - **Stateful garbage collection** — resources removed from config are automatically cleaned up

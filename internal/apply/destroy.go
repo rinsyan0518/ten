@@ -23,7 +23,7 @@ type UnlinkRequest struct {
 	// wrote ("template" resources only; empty on pre-hashing records).
 	ContentHash string
 	// BackupRoot bounds the empty-directory cleanup after a restore
-	// (typically ~/.ten_backup): directories emptied by moving the
+	// (the backup dir under the XDG state dir): directories emptied by moving the
 	// backup away are removed up to and including this root, never
 	// beyond it. Empty disables the cleanup.
 	BackupRoot string
@@ -86,7 +86,7 @@ func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 		}
 		// Moving the backup away may have emptied its timestamp directory
 		// (and mirrored path components under it); sweep those so
-		// ~/.ten_backup doesn't accumulate empty skeletons forever. Best
+		// the backup root doesn't accumulate empty skeletons forever. Best
 		// effort — a failure here never fails the restore itself.
 		if req.BackupRoot != "" {
 			pruneEmptyDirs(filepath.Dir(req.BackupPath), req.BackupRoot)

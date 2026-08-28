@@ -57,9 +57,13 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected .gitconfig to become a symlink, got isLink=%v target=%q ok=%v", isLink, target, ok)
 	}
 
-	findOut, _, code := sb.Exec(t, "find "+home+"/.ten_backup -name .gitconfig")
+	// Backups live under the XDG state dir, never as a dotfile in $HOME.
+	if _, _, ok := sb.Lstat(t, home+"/.ten_backup"); ok {
+		t.Fatalf("apply must not create ~/.ten_backup")
+	}
+	findOut, _, code := sb.Exec(t, "find "+home+"/.local/state/ten/backup -name .gitconfig")
 	if code != 0 || strings.TrimSpace(findOut) == "" {
-		t.Fatalf("expected a backup of the old .gitconfig under %s/.ten_backup, find output: %q", home, findOut)
+		t.Fatalf("expected a backup of the old .gitconfig under %s/.local/state/ten/backup, find output: %q", home, findOut)
 	}
 	content := sb.ReadFile(t, strings.TrimSpace(findOut))
 	if content != "old local config\n" {
@@ -92,7 +96,7 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected the already-synced git symlink to still be shown as up to date, got output: %s", out)
 	}
 
-	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -type f 2>/dev/null")
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.local/state/ten/backup -type f 2>/dev/null")
 	if strings.TrimSpace(findOut) != "" {
 		t.Fatalf("expected no backup from idempotent second apply, found: %q", findOut)
 	}
@@ -362,10 +366,10 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 		t.Fatalf("unexpected rendered content: %q", got)
 	}
 
-	findOut, _, _ := sb.Exec(t, "find "+home+"/.ten_backup -name .gitconfig.local")
+	findOut, _, _ := sb.Exec(t, "find "+home+"/.local/state/ten/backup -name .gitconfig.local")
 	backup := strings.TrimSpace(findOut)
 	if backup == "" {
-		t.Fatalf("expected the replaced symlink to be backed up under .ten_backup, find output: %q", findOut)
+		t.Fatalf("expected the replaced symlink to be backed up under the XDG backup dir, find output: %q", findOut)
 	}
 	if _, _, code := sb.Exec(t, "test -L "+backup); code != 0 {
 		t.Fatalf("expected the backup %s to be the old symlink", backup)
