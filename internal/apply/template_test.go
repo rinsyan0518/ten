@@ -3,10 +3,31 @@ package apply_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 )
+
+func TestRenderTemplate_UndefinedVarIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source.tmpl")
+	if err := os.WriteFile(src, []byte("email = {{ .Vars.git_email }}\n"), 0o644); err != nil {
+		t.Fatalf("write source template: %v", err)
+	}
+	target := filepath.Join(dir, "target.txt")
+
+	_, err := apply.RenderTemplate(target, src, map[string]string{}, apply.SystemInfo{}, dir, false, false)
+	if err == nil {
+		t.Fatalf("expected error for undefined .Vars.git_email, got nil")
+	}
+	if !strings.Contains(err.Error(), "git_email") {
+		t.Fatalf("error should name the missing key, got: %v", err)
+	}
+	if _, statErr := os.Lstat(target); !os.IsNotExist(statErr) {
+		t.Fatalf("target must not be written when rendering fails, lstat: %v", statErr)
+	}
+}
 
 func TestRenderTemplate_ExposesTenContext(t *testing.T) {
 	dir := t.TempDir()

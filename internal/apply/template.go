@@ -35,7 +35,10 @@ func RenderTemplate(target, sourcePath string, vars map[string]string, ten Syste
 	if err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: read template %s: %w", sourcePath, err)
 	}
-	tmpl, err := template.New(filepath.Base(sourcePath)).Parse(string(tmplBytes))
+	// missingkey=error: a reference to an undefined .Vars key must fail
+	// the render, not silently write "<no value>" into the target (e.g. a
+	// gitconfig on a machine whose ten.local.toml is missing or unreadable).
+	tmpl, err := template.New(filepath.Base(sourcePath)).Option("missingkey=error").Parse(string(tmplBytes))
 	if err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: parse template %s: %w", sourcePath, err)
 	}
