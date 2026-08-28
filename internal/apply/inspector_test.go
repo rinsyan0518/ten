@@ -44,12 +44,4 @@ func TestOSInspector_InspectAndReadFile(t *testing.T) {
 	if got.Exists {
 		t.Fatalf("missing path reported as existing: %+v", got)
 	}
-
-	content, err := ins.ReadFile(file)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(content) != "content" {
-		t.Fatalf("ReadFile = %q", content)
-	}
 }

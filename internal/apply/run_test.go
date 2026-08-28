@@ -4,11 +4,11 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/apply"
-	"github.com/rinsyan0518/ten/internal/config"
-	"github.com/rinsyan0518/ten/internal/pathresolve"
+	"github.com/rinsyan0518/ten/internal/plan"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
@@ -17,74 +17,73 @@ import (
 // which each method fired, for tests that assert on execution order.
 type fakeExecutor struct {
 	calls              []string
-	LinkFunc           func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error)
-	UnlinkFunc         func(req apply.UnlinkRequest, dryRun bool) (apply.UnlinkResult, error)
-	RenderTemplateFunc func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error)
-	RunHookFunc        func(cmdStr string, out io.Writer, dryRun bool) error
+	LinkFunc           func(target, source, backupDir string) (apply.LinkResult, error)
+	UnlinkFunc         func(req apply.UnlinkRequest) (apply.UnlinkResult, error)
+	RenderTemplateFunc func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error)
+	RunHookFunc        func(cmdStr string, out io.Writer) error
 }
 
-func (f *fakeExecutor) Link(target, source, backupDir string, dryRun bool) (apply.LinkResult, error) {
+func (f *fakeExecutor) Link(target, source, backupDir string) (apply.LinkResult, error) {
 	f.calls = append(f.calls, "link:"+target)
 	if f.LinkFunc != nil {
-		return f.LinkFunc(target, source, backupDir, dryRun)
+		return f.LinkFunc(target, source, backupDir)
 	}
 	return apply.LinkResult{Target: target, Source: source}, nil
 }
 
-func (f *fakeExecutor) Unlink(req apply.UnlinkRequest, dryRun bool) (apply.UnlinkResult, error) {
+func (f *fakeExecutor) Unlink(req apply.UnlinkRequest) (apply.UnlinkResult, error) {
 	f.calls = append(f.calls, "unlink:"+req.Target)
 	if f.UnlinkFunc != nil {
-		return f.UnlinkFunc(req, dryRun)
+		return f.UnlinkFunc(req)
 	}
-	return apply.UnlinkResult{Target: req.Target}, nil
+	return apply.UnlinkResult{Target: req.Target, Restored: req.BackupPath != ""}, nil
 }
 
-func (f *fakeExecutor) RenderTemplate(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error) {
+func (f *fakeExecutor) RenderTemplate(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error) {
 	f.calls = append(f.calls, "template:"+target)
 	if f.RenderTemplateFunc != nil {
-		return f.RenderTemplateFunc(target, source, vars, ten, backupDir, alreadyManaged, dryRun)
+		return f.RenderTemplateFunc(target, source, vars, ten, backupDir, backup)
 	}
 	return apply.TemplateResult{Target: target, Source: source}, nil
 }
 
-func (f *fakeExecutor) RunHook(cmdStr string, out io.Writer, dryRun bool) error {
+func (f *fakeExecutor) RunHook(cmdStr string, out io.Writer) error {
 	if cmdStr == "" {
 		return nil
 	}
 	f.calls = append(f.calls, "hook:"+cmdStr)
 	if f.RunHookFunc != nil {
-		return f.RunHookFunc(cmdStr, out, dryRun)
+		return f.RunHookFunc(cmdStr, out)
 	}
 	return nil
 }
 
-func TestApply_RunsToolsInDependencyOrderWithHooksAndLinks(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git": {
-				Links: map[string]string{"home:.gitconfig": "git/.gitconfig"},
+func emptyState() state.State {
+	return state.State{ManagedResources: map[string]state.Resource{}}
+}
+
+func TestExecute_WalksPlanInOrderAndRecordsState(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{
+			{
+				Tool:  "git",
+				Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate}},
 				After: "echo git-done",
 			},
-			"git-work": {
-				DependsOn: []string{"git"},
+			{
+				Tool:      "git-work",
 				Before:    "echo work-start",
-				Templates: map[string]string{"home:.gitconfig.local": "git/gitconfig.local.tmpl"},
+				Templates: []plan.TemplateStep{{Target: "/home/taro/.gitconfig.local", Source: "/dotfiles/git/tmpl", Action: plan.ActionCreate}},
 			},
 		},
-		Enabled: map[string]bool{"git": true, "git-work": true},
 	}
 
 	fx := &fakeExecutor{}
-	result, newState, err := apply.Apply(apply.RunParams{
-		Merged:   merged,
-		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
-		Out:      io.Discard,
-		Executor: fx,
+	result, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/home/taro/.ten_backup", Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
 
 	wantCalls := []string{"link:/home/taro/.gitconfig", "hook:echo git-done", "hook:echo work-start", "template:/home/taro/.gitconfig.local"}
@@ -94,211 +93,225 @@ func TestApply_RunsToolsInDependencyOrderWithHooksAndLinks(t *testing.T) {
 	if len(result.Outcomes) != 2 || result.Outcomes[0].Tool != "git" || result.Outcomes[1].Tool != "git-work" {
 		t.Fatalf("unexpected outcome order: %+v", result.Outcomes)
 	}
-	if got := newState.ManagedResources["/home/taro/.gitconfig"].Tool; got != "git" {
-		t.Fatalf("expected .gitconfig tracked under git, got %q", got)
+	if got := newState.ManagedResources["/home/taro/.gitconfig"]; got.Tool != "git" || got.Type != "symlink" {
+		t.Fatalf("expected .gitconfig tracked under git, got %+v", got)
+	}
+	if got := newState.ManagedResources["/home/taro/.gitconfig.local"]; got.Tool != "git-work" || got.Type != "template" {
+		t.Fatalf("expected .gitconfig.local tracked under git-work, got %+v", got)
+	}
+	if got := result.Outcomes[1].Templates[0].Source; got != "/dotfiles/git/tmpl" {
+		t.Fatalf("template result should carry the step's source, got %q", got)
 	}
 }
 
-func TestApply_RunsOnceHookWhenToolNewlyManagesASymlink(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, Once: "echo first-time"},
-		},
-		Enabled: map[string]bool{"git": true},
-	}
-
-	fx := &fakeExecutor{}
-	result, _, err := apply.Apply(apply.RunParams{
-		Merged:   merged,
-		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
-		Out:      io.Discard,
-		Executor: fx,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	wantCalls := []string{"link:/home/taro/.gitconfig", "hook:echo first-time"}
-	if !reflect.DeepEqual(fx.calls, wantCalls) {
-		t.Fatalf("got calls %v, want %v", fx.calls, wantCalls)
-	}
-	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "echo first-time" {
-		t.Fatalf("expected once to be recorded in the outcome, got %+v", result.Outcomes)
-	}
-}
-
-func TestApply_RunsOnceHookWhenToolNewlyManagesATemplate(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git": {Templates: map[string]string{"home:.gitconfig": "git/.gitconfig.tmpl"}, Once: "echo first-time"},
-		},
-		Enabled: map[string]bool{"git": true},
-	}
-
-	fx := &fakeExecutor{}
-	result, _, err := apply.Apply(apply.RunParams{
-		Merged:   merged,
-		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
-		Out:      io.Discard,
-		Executor: fx,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "echo first-time" {
-		t.Fatalf("expected once to fire for a newly-managed template, got %+v", result.Outcomes)
-	}
-}
-
-func TestApply_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git":  {Templates: map[string]string{"home:.gitconfig.local": "git/gitconfig.local.tmpl"}},
-			"nvim": {Templates: map[string]string{"home:.config/nvim/local.lua": "nvim/local.lua.tmpl"}},
-		},
-		Enabled: map[string]bool{"git": true, "nvim": true},
-	}
-
-	gotTools := map[string]string{}
-	fx := &fakeExecutor{
-		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error) {
-			gotTools[target] = ten.Tool
-			return apply.TemplateResult{Target: target, Source: source}, nil
-		},
-	}
-
-	_, _, err := apply.Apply(apply.RunParams{
-		Merged:   merged,
-		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
-		Ten:      apply.SystemInfo{Hostname: "test-host", Profile: "work"},
-		Out:      io.Discard,
-		Executor: fx,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if got := gotTools["/home/taro/.gitconfig.local"]; got != "git" {
-		t.Fatalf("git template got Ten.Tool = %q, want %q", got, "git")
-	}
-	if got := gotTools["/home/taro/.config/nvim/local.lua"]; got != "nvim" {
-		t.Fatalf("nvim template got Ten.Tool = %q, want %q", got, "nvim")
-	}
-}
-
-func TestApply_SkipsOnceHookWhenTargetAlreadyTrackedInState(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, Once: "echo first-time"},
-		},
-		Enabled: map[string]bool{"git": true},
+func TestExecute_SkipsNoopLinkStepsWithoutTouchingExecutor(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:  "git",
+			Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionNoop}},
+		}},
 	}
 	current := state.State{ManagedResources: map[string]state.Resource{
 		"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
 	}}
 
-	fx := &fakeExecutor{
-		// Already tracked and already correct on disk, exactly like a real
-		// idempotent re-apply: Link reports Skipped=true.
-		LinkFunc: func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error) {
-			return apply.LinkResult{Target: target, Source: source, Skipped: true}, nil
-		},
-	}
-	result, _, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: current, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
+	fx := &fakeExecutor{}
+	result, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
-	for _, c := range fx.calls {
-		if c == "hook:echo first-time" {
-			t.Fatalf("expected once NOT to fire for an already-tracked target, got calls %v", fx.calls)
-		}
+	if len(fx.calls) != 0 {
+		t.Fatalf("noop steps must not reach the executor, got calls %v", fx.calls)
 	}
 	if len(result.Outcomes) != 1 {
-		t.Fatalf("expected one outcome for the tool with a skipped link, got %+v", result.Outcomes)
+		t.Fatalf("expected the up-to-date tool to still appear in outcomes, got %+v", result.Outcomes)
 	}
-	if len(result.Outcomes[0].Links) != 1 || !result.Outcomes[0].Links[0].Skipped {
-		t.Fatalf("expected the skipped link to be included in the outcome, got %+v", result.Outcomes[0].Links)
+	o := result.Outcomes[0]
+	if len(o.Links) != 1 || !o.Links[0].Skipped {
+		t.Fatalf("expected a skipped link result, got %+v", o.Links)
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; !ok {
+		t.Fatalf("noop resources must stay tracked in state")
 	}
 }
 
-func TestApply_SkipsOnceHookForAToolWithNoResources(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git": {Before: "echo start", Once: "echo first-time", After: "echo done"},
+func TestExecute_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{
+			{Tool: "git", Templates: []plan.TemplateStep{{Target: "/home/taro/.a", Source: "/dotfiles/a.tmpl", Action: plan.ActionCreate}}},
+			{Tool: "nvim", Templates: []plan.TemplateStep{{Target: "/home/taro/.b", Source: "/dotfiles/b.tmpl", Action: plan.ActionCreate}}},
 		},
-		Enabled: map[string]bool{"git": true},
+	}
+	gotTools := map[string]string{}
+	fx := &fakeExecutor{
+		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error) {
+			gotTools[target] = ten.Tool
+			return apply.TemplateResult{Target: target, Source: source}, nil
+		},
+	}
+
+	_, _, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Ten: apply.SystemInfo{Hostname: "h"}, Out: io.Discard, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if gotTools["/home/taro/.a"] != "git" || gotTools["/home/taro/.b"] != "nvim" {
+		t.Fatalf("Ten.Tool not set per tool: %+v", gotTools)
+	}
+}
+
+func TestExecute_RecordsExecutorReportedUpToDateTemplate(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:      "git",
+			Templates: []plan.TemplateStep{{Target: "/home/taro/.gitconfig.local", Source: "/dotfiles/git/tmpl", Action: plan.ActionUpdate}},
+		}},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.gitconfig.local": {Tool: "git", Type: "template", Source: "/dotfiles/git/tmpl"},
+	}}
+	fx := &fakeExecutor{
+		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error) {
+			return apply.TemplateResult{Target: target, Source: source, Skipped: true}, nil
+		},
+	}
+
+	result, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(result.Outcomes) != 1 || len(result.Outcomes[0].Templates) != 1 || !result.Outcomes[0].Templates[0].Skipped {
+		t.Fatalf("expected the skipped template in the outcome, got %+v", result.Outcomes)
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.gitconfig.local"]; !ok {
+		t.Fatalf("an up-to-date template must stay tracked in state")
+	}
+}
+
+func TestExecute_PreservesRecordedBackupPathOnReapply(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:  "git",
+			Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate}},
+		}},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig", BackupPath: "/home/taro/.ten_backup/old/.gitconfig"},
+	}}
+
+	fx := &fakeExecutor{} // Link returns no BackupPath, like an idempotent re-link
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := newState.ManagedResources["/home/taro/.gitconfig"].BackupPath; got != "/home/taro/.ten_backup/old/.gitconfig" {
+		t.Fatalf("recorded backup path must survive a re-apply, got %q", got)
+	}
+}
+
+func TestExecute_RunsOnceHookWhenArmed(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:  "git",
+			Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate}},
+			Once:  "echo first-time",
+		}},
 	}
 
 	fx := &fakeExecutor{}
-	result, _, err := apply.Apply(apply.RunParams{
-		Merged:   merged,
-		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
-		Out:      io.Discard,
-		Executor: fx,
+	result, _, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
-	wantCalls := []string{"hook:echo start", "hook:echo done"}
+	wantCalls := []string{"link:/home/taro/.gitconfig", "hook:echo first-time"}
 	if !reflect.DeepEqual(fx.calls, wantCalls) {
-		t.Fatalf("expected once NOT to fire for a hooks-only tool, got calls %v, want %v", fx.calls, wantCalls)
+		t.Fatalf("got calls %v, want %v", fx.calls, wantCalls)
 	}
-	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "" {
-		t.Fatalf("expected outcome.Once to stay empty, got %+v", result.Outcomes)
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "echo first-time" {
+		t.Fatalf("expected once recorded in the outcome, got %+v", result.Outcomes)
 	}
 }
 
-func TestApply_PrunesResourcesNotInDesired(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
-		},
-		Enabled: map[string]bool{"git": true},
+func TestExecute_ExecutesPrunesBeforeToolsAndUpdatesState(t *testing.T) {
+	pl := plan.Plan{
+		Prunes: []plan.PruneStep{{Target: "/home/taro/.config/old", Type: "symlink", Action: plan.ActionRemove}},
+		Tools: []plan.ToolPlan{{
+			Tool:  "git",
+			Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate}},
+		}},
 	}
 	current := state.State{ManagedResources: map[string]state.Resource{
-		"/home/taro/.gitconfig":       {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
-		"/home/taro/.config/old-tool": {Tool: "old-tool", Type: "symlink", Source: "/dotfiles/old-tool/x"},
+		"/home/taro/.config/old": {Tool: "old", Type: "symlink", Source: "/dotfiles/old/x"},
 	}}
 
 	fx := &fakeExecutor{}
-	result, newState, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: current, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
+	result, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
-	if len(result.Prunes) != 1 || result.Prunes[0].Result.Target != "/home/taro/.config/old-tool" {
-		t.Fatalf("expected old-tool to be pruned, got %+v", result.Prunes)
+	wantCalls := []string{"unlink:/home/taro/.config/old", "link:/home/taro/.gitconfig"}
+	if !reflect.DeepEqual(fx.calls, wantCalls) {
+		t.Fatalf("got calls %v, want %v", fx.calls, wantCalls)
 	}
-	if _, ok := newState.ManagedResources["/home/taro/.config/old-tool"]; ok {
-		t.Fatalf("expected old-tool removed from state")
+	if len(result.Prunes) != 1 || result.Prunes[0].Result.Target != "/home/taro/.config/old" {
+		t.Fatalf("expected the prune in the result, got %+v", result.Prunes)
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.config/old"]; ok {
+		t.Fatalf("pruned resource must leave state")
 	}
 }
 
-func TestApply_StopsOnLinkFailureAndKeepsPartialResult(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
-			"nvim": {Links: map[string]string{"xdg:nvim": "nvim"}},
+func TestExecute_SkipStepIsWarnedAndKeptInState(t *testing.T) {
+	pl := plan.Plan{
+		Prunes: []plan.PruneStep{{Target: "/home/taro/.config/old", Type: "symlink", Action: plan.ActionSkip, SkipReason: "no longer a symlink created by ten"}},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.config/old": {Tool: "old", Type: "symlink", Source: "/dotfiles/old/x"},
+	}}
+
+	var out testWriter
+	fx := &fakeExecutor{}
+	result, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: &out, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(fx.calls) != 0 {
+		t.Fatalf("a planned skip must not reach the executor, got %v", fx.calls)
+	}
+	if len(result.Prunes) != 0 {
+		t.Fatalf("skipped prunes must not appear as prune outcomes, got %+v", result.Prunes)
+	}
+	if !out.contains("no longer a symlink") {
+		t.Fatalf("expected a warning naming the reason, got %q", out.String())
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.config/old"]; !ok {
+		t.Fatalf("skipped resource must stay in state")
+	}
+}
+
+func TestExecute_StopsOnLinkFailureAndKeepsPartialResult(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{
+			{Tool: "git", Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate}}},
+			{Tool: "nvim", Links: []plan.LinkStep{{Target: "/home/taro/.config/nvim", Source: "/dotfiles/nvim", Action: plan.ActionCreate}}},
 		},
-		Enabled: map[string]bool{"git": true, "nvim": true},
 	}
 	linkErr := errors.New("boom")
 	fx := &fakeExecutor{
-		LinkFunc: func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error) {
+		LinkFunc: func(target, source, backupDir string) (apply.LinkResult, error) {
 			if target == "/home/taro/.config/nvim" {
 				return apply.LinkResult{}, linkErr
 			}
@@ -306,86 +319,23 @@ func TestApply_StopsOnLinkFailureAndKeepsPartialResult(t *testing.T) {
 		},
 	}
 
-	result, _, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
+	result, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
 	})
 	if err == nil || !errors.Is(err, linkErr) {
 		t.Fatalf("expected error wrapping %v, got %v", linkErr, err)
 	}
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Tool != "git" {
-		t.Fatalf("expected only git's outcome to be recorded, got %+v", result.Outcomes)
+		t.Fatalf("expected only git's outcome kept, got %+v", result.Outcomes)
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; !ok {
+		t.Fatalf("work done before the failure must be recorded in state")
 	}
 }
 
-func TestApply_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
-		},
-		Enabled: map[string]bool{"git": true},
-	}
-	var gotDryRun bool
-	fx := &fakeExecutor{
-		LinkFunc: func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error) {
-			gotDryRun = dryRun
-			return apply.LinkResult{Target: target, Source: source}, nil
-		},
-	}
-	_, newState, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, DryRun: true, Executor: fx,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !gotDryRun {
-		t.Fatalf("expected dryRun=true to reach Executor.Link")
-	}
-	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; ok {
-		t.Fatalf("dry-run must not write to state")
-	}
-}
+// testWriter is a tiny in-memory io.Writer usable across tests.
+type testWriter struct{ buf []byte }
 
-func TestApply_IncludesBothChangedAndUpToDateToolsInOutcomes(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
-			"hoge": {Links: map[string]string{"home:.hogerc": "hoge/.hogerc"}},
-		},
-		Enabled: map[string]bool{"git": true, "hoge": true},
-	}
-	current := state.State{ManagedResources: map[string]state.Resource{
-		"/home/taro/.hogerc": {Tool: "hoge", Type: "symlink", Source: "/dotfiles/hoge/.hogerc"},
-	}}
-
-	fx := &fakeExecutor{
-		LinkFunc: func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error) {
-			if target == "/home/taro/.hogerc" {
-				// Already tracked and already correct on disk.
-				return apply.LinkResult{Target: target, Source: source, Skipped: true}, nil
-			}
-			return apply.LinkResult{Target: target, Source: source}, nil
-		},
-	}
-	result, _, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: current, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Outcomes) != 2 {
-		t.Fatalf("expected both tools to appear in outcomes, got %+v", result.Outcomes)
-	}
-
-	byTool := map[string]apply.ToolOutcome{}
-	for _, o := range result.Outcomes {
-		byTool[o.Tool] = o
-	}
-	if len(byTool["git"].Links) != 1 || byTool["git"].Links[0].Skipped {
-		t.Fatalf("expected git's link to be a non-skipped create, got %+v", byTool["git"].Links)
-	}
-	if len(byTool["hoge"].Links) != 1 || !byTool["hoge"].Links[0].Skipped {
-		t.Fatalf("expected hoge's link to be skipped (already up to date), got %+v", byTool["hoge"].Links)
-	}
-}
+func (w *testWriter) Write(p []byte) (int, error) { w.buf = append(w.buf, p...); return len(p), nil }
+func (w *testWriter) String() string              { return string(w.buf) }
+func (w *testWriter) contains(s string) bool      { return strings.Contains(w.String(), s) }

@@ -32,7 +32,3 @@ func (osInspector) Inspect(path string) (plan.Entry, error) {
 	}
 	return entry, nil
 }
-
-func (osInspector) ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
-}

@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/pathresolve"
+	"github.com/rinsyan0518/ten/internal/plan"
 	"github.com/rinsyan0518/ten/internal/render"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
@@ -51,28 +53,43 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("apply: %w", err)
 	}
 
-	result, newState, runErr := apply.Apply(apply.RunParams{
-		Merged:   merged,
-		Current:  current,
-		Env:      env,
-		Ten:      ten,
-		DryRun:   dryRun,
-		Out:      cmd.OutOrStdout(),
-		Executor: apply.NewOSExecutor(),
+	pl, err := plan.Build(plan.BuildParams{
+		Merged:    merged,
+		Current:   current,
+		Env:       env,
+		Inspector: apply.NewOSInspector(),
 	})
-	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(result, dryRun))
+	if err != nil {
+		return fmt.Errorf("apply: %w", err)
+	}
 
-	if !dryRun {
-		// apply.Apply builds newState from scratch (ManagedResources only);
-		// it doesn't know about the bootstrap fields, so carry them over
-		// explicitly or a saved ten.state.json would lose dotfiles_root/
-		// profile after every apply, forcing a re-run of `ten init`.
-		newState.DotfilesRoot = current.DotfilesRoot
-		newState.Profile = current.Profile
-		newState.LastApplied = time.Now()
-		if saveErr := state.Save(statePath, newState); saveErr != nil && runErr == nil {
-			return fmt.Errorf("apply: save state: %w", saveErr)
-		}
+	// --dry-run stops at the plan: nothing below this line runs, so a
+	// dry-run structurally cannot touch the filesystem or the state file.
+	if dryRun {
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), formatPlan(pl))
+		return nil
+	}
+
+	result, newState, runErr := apply.Execute(apply.ExecParams{
+		Plan:      pl,
+		Current:   current,
+		BackupDir: filepath.Join(home, ".ten_backup"),
+		Vars:      merged.Vars,
+		Ten:       ten,
+		Out:       cmd.OutOrStdout(),
+		Executor:  apply.NewOSExecutor(),
+	})
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatApplyPlan(result))
+
+	// apply.Execute builds newState from scratch (ManagedResources only);
+	// it doesn't know about the bootstrap fields, so carry them over
+	// explicitly or a saved ten.state.json would lose dotfiles_root/
+	// profile after every apply, forcing a re-run of `ten init`.
+	newState.DotfilesRoot = current.DotfilesRoot
+	newState.Profile = current.Profile
+	newState.LastApplied = time.Now()
+	if saveErr := state.Save(statePath, newState); saveErr != nil && runErr == nil {
+		return fmt.Errorf("apply: save state: %w", saveErr)
 	}
 	return runErr
 }

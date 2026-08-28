@@ -39,11 +39,7 @@ type UnlinkResult struct {
 // it (Skipped=true) instead of silently destroying it. Template output is
 // a plain file with no equivalent marker, so it cannot be verified this
 // way and is removed as recorded.
-func Unlink(req UnlinkRequest, dryRun bool) (UnlinkResult, error) {
-	if dryRun {
-		return UnlinkResult{Target: req.Target, Restored: req.BackupPath != ""}, nil
-	}
-
+func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 	info, err := os.Lstat(req.Target)
 	switch {
 	case err == nil:

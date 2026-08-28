@@ -2,13 +2,11 @@ package plan
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 
 	"github.com/rinsyan0518/ten/internal/config"
 	"github.com/rinsyan0518/ten/internal/graph"
 	"github.com/rinsyan0518/ten/internal/pathresolve"
-	"github.com/rinsyan0518/ten/internal/render"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
@@ -44,12 +42,11 @@ type Entry struct {
 }
 
 // Inspector is the read-only filesystem probe Build plans against. The
-// real implementation lstats and reads the disk; tests substitute a
-// fake. Build performs no writes through it — a plan is a prediction,
-// never a side effect.
+// real implementation lstats the disk; tests substitute a fake. Build
+// performs no writes through it — a plan is a prediction, never a side
+// effect.
 type Inspector interface {
 	Inspect(path string) (Entry, error)
-	ReadFile(path string) ([]byte, error)
 }
 
 // LinkStep is one planned symlink.
@@ -59,14 +56,16 @@ type LinkStep struct {
 	Action Action // create | replace | noop
 }
 
-// TemplateStep is one planned template render. Content carries the bytes
-// rendered at plan time; execution writes exactly these, so plan and
-// outcome cannot diverge.
+// TemplateStep is one planned template render. Rendering itself happens
+// at execution time, after the owning tool's before hook has run — a
+// hook may generate or update the template source, so rendering earlier
+// would bake in stale content. The plan therefore never predicts noop
+// for a template; execution reports one when the rendered output turns
+// out identical to what is on disk.
 type TemplateStep struct {
-	Target  string
-	Source  string
-	Action  Action // create | replace | update | noop
-	Content []byte
+	Target string
+	Source string
+	Action Action // create | replace | update
 }
 
 // PruneStep is one resource leaving ten's control this run.
@@ -109,16 +108,18 @@ type BuildParams struct {
 	Merged    config.Merged
 	Current   state.State
 	Env       pathresolve.Env
-	Ten       render.SystemInfo // Tool is zero-valued here; Build fills it per tool
 	Inspector Inspector
 }
 
 // Build computes the full plan for one apply run: dependency order via
 // graph.Sort, desired targets via Desired (including duplicate-target
 // detection), prune steps for state entries no longer desired, and a
-// per-resource action derived from what is actually on disk. Templates
-// are rendered here, once, and carried in their step. Build only reads
-// — through p.Inspector — and never mutates filesystem or state.
+// per-resource action derived from what is actually on disk. Build only
+// reads — through p.Inspector — and never mutates filesystem or state.
+//
+// Existence of link/template sources is deliberately NOT checked here:
+// a tool's before hook is allowed to generate its sources, and hooks
+// run at execution time. Missing sources stay an execution-time error.
 func Build(p BuildParams) (Plan, error) {
 	order, err := graph.Sort(p.Merged)
 	if err != nil {
@@ -168,10 +169,8 @@ func Build(p BuildParams) (Plan, error) {
 				}
 				tp.Links = append(tp.Links, step)
 			case "template":
-				ten := p.Ten
-				ten.Tool = name
 				alreadyManaged := p.Current.ManagedResources[d.Target].Type == "template"
-				step, err := planTemplate(d, p.Merged.Vars, ten, alreadyManaged, p.Inspector)
+				step, err := planTemplate(d, alreadyManaged, p.Inspector)
 				if err != nil {
 					return Plan{}, fmt.Errorf("tool %s: %w", name, err)
 				}
@@ -191,15 +190,6 @@ func Build(p BuildParams) (Plan, error) {
 }
 
 func planLink(d Target, ins Inspector) (LinkStep, error) {
-	// Refuse to plan a symlink into nothing: it would dangle.
-	src, err := ins.Inspect(d.Source)
-	if err != nil {
-		return LinkStep{}, fmt.Errorf("inspect link source %s: %w", d.Source, err)
-	}
-	if !src.Exists {
-		return LinkStep{}, fmt.Errorf("link source %s does not exist", d.Source)
-	}
-
 	entry, err := ins.Inspect(d.Target)
 	if err != nil {
 		return LinkStep{}, fmt.Errorf("inspect %s: %w", d.Target, err)
@@ -216,21 +206,12 @@ func planLink(d Target, ins Inspector) (LinkStep, error) {
 	return step, nil
 }
 
-func planTemplate(d Target, vars map[string]string, ten render.SystemInfo, alreadyManaged bool, ins Inspector) (TemplateStep, error) {
-	text, err := ins.ReadFile(d.Source)
-	if err != nil {
-		return TemplateStep{}, fmt.Errorf("read template %s: %w", d.Source, err)
-	}
-	content, err := render.Render(filepath.Base(d.Source), text, vars, ten)
-	if err != nil {
-		return TemplateStep{}, err
-	}
-
+func planTemplate(d Target, alreadyManaged bool, ins Inspector) (TemplateStep, error) {
 	entry, err := ins.Inspect(d.Target)
 	if err != nil {
 		return TemplateStep{}, fmt.Errorf("inspect %s: %w", d.Target, err)
 	}
-	step := TemplateStep{Target: d.Target, Source: d.Source, Content: content}
+	step := TemplateStep{Target: d.Target, Source: d.Source}
 	switch {
 	case !entry.Exists:
 		step.Action = ActionCreate
@@ -238,22 +219,8 @@ func planTemplate(d Target, vars map[string]string, ten render.SystemInfo, alrea
 		// Whatever occupies the target is not ten's template output —
 		// back it up before writing, exactly like a link would.
 		step.Action = ActionReplace
-	case entry.IsSymlink:
-		// State says template but disk has a symlink (e.g. converted
-		// from links while state lagged). Never content-compare through
-		// a symlink: it reads the file it points at, typically one in
-		// the dotfiles repo.
-		step.Action = ActionUpdate
 	default:
-		current, err := ins.ReadFile(d.Target)
-		if err != nil {
-			return TemplateStep{}, fmt.Errorf("read %s: %w", d.Target, err)
-		}
-		if string(current) == string(content) {
-			step.Action = ActionNoop
-		} else {
-			step.Action = ActionUpdate
-		}
+		step.Action = ActionUpdate
 	}
 	return step, nil
 }
@@ -283,16 +250,10 @@ func planPrune(target string, res state.Resource, ins Inspector) (PruneStep, err
 	}
 
 	if res.BackupPath != "" {
-		// A recorded backup that is gone would make the restore
-		// unrecoverable after the target is removed — surface it now,
-		// before anything is touched.
-		backup, err := ins.Inspect(res.BackupPath)
-		if err != nil {
-			return PruneStep{}, fmt.Errorf("inspect backup %s: %w", res.BackupPath, err)
-		}
-		if !backup.Exists {
-			return PruneStep{}, fmt.Errorf("prune %s: recorded backup %s does not exist", target, res.BackupPath)
-		}
+		// Whether the recorded backup still exists is checked at
+		// execution time by Unlink, right before the target is removed
+		// (fail-fast with partial progress) — not here, so a single
+		// missing backup can't block the whole run from starting.
 		step.Action = ActionRestore
 		return step, nil
 	}

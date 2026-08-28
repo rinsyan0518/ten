@@ -1,49 +1,27 @@
 package plan_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/config"
 	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/plan"
-	"github.com/rinsyan0518/ten/internal/render"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
 // fakeInspector is a read-only filesystem double: entries maps a path to
-// what Lstat would see, files maps a path to its regular-file content.
-// Paths absent from entries simply don't exist.
+// what Lstat would see. Paths absent from entries simply don't exist.
 type fakeInspector struct {
 	entries map[string]plan.Entry
-	files   map[string][]byte
 }
 
 func (f *fakeInspector) Inspect(path string) (plan.Entry, error) {
 	return f.entries[path], nil
 }
 
-func (f *fakeInspector) ReadFile(path string) ([]byte, error) {
-	content, ok := f.files[path]
-	if !ok {
-		return nil, fmt.Errorf("fakeInspector: no file at %s", path)
-	}
-	return content, nil
-}
-
 func testBuildEnv() pathresolve.Env {
 	return pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}
-}
-
-// sources marks the given paths as existing regular files, the minimum
-// for a link source to be considered valid.
-func sources(paths ...string) map[string]plan.Entry {
-	entries := map[string]plan.Entry{}
-	for _, p := range paths {
-		entries[p] = plan.Entry{Exists: true}
-	}
-	return entries
 }
 
 func TestBuild_OrdersToolsByDependencyWithHooks(t *testing.T) {
@@ -59,10 +37,7 @@ func TestBuild_OrdersToolsByDependencyWithHooks(t *testing.T) {
 		},
 		Enabled: map[string]bool{"git": true, "git-work": true},
 	}
-	fx := &fakeInspector{
-		entries: sources("/dotfiles/git/.gitconfig"),
-		files:   map[string][]byte{"/dotfiles/git/gitconfig.local.tmpl": []byte("hello")},
-	}
+	fx := &fakeInspector{entries: map[string]plan.Entry{}}
 
 	p, err := plan.Build(plan.BuildParams{Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: testBuildEnv(), Inspector: fx})
 	if err != nil {
@@ -103,9 +78,7 @@ func TestBuild_LinkActions(t *testing.T) {
 				Tools:        map[string]config.Tool{"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}}},
 				Enabled:      map[string]bool{"git": true},
 			}
-			entries := sources(source)
-			entries[target] = tt.entry
-			fx := &fakeInspector{entries: entries}
+			fx := &fakeInspector{entries: map[string]plan.Entry{target: tt.entry}}
 
 			p, err := plan.Build(plan.BuildParams{Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: testBuildEnv(), Inspector: fx})
 			if err != nil {
@@ -121,7 +94,10 @@ func TestBuild_LinkActions(t *testing.T) {
 	}
 }
 
-func TestBuild_ErrorsWhenLinkSourceMissing(t *testing.T) {
+func TestBuild_MissingLinkSourceIsNotAPlanError(t *testing.T) {
+	// A tool's before hook may generate its link source at execution
+	// time, so a source missing at plan time must still plan a create;
+	// Link itself guards against dangling symlinks during execution.
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools:        map[string]config.Tool{"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}}},
@@ -129,47 +105,45 @@ func TestBuild_ErrorsWhenLinkSourceMissing(t *testing.T) {
 	}
 	fx := &fakeInspector{entries: map[string]plan.Entry{}}
 
-	_, err := plan.Build(plan.BuildParams{Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: testBuildEnv(), Inspector: fx})
-	if err == nil || !strings.Contains(err.Error(), "/dotfiles/git/.gitconfig") {
-		t.Fatalf("expected error naming the missing source, got %v", err)
+	p, err := plan.Build(plan.BuildParams{Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: testBuildEnv(), Inspector: fx})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(p.Tools) != 1 || len(p.Tools[0].Links) != 1 || p.Tools[0].Links[0].Action != plan.ActionCreate {
+		t.Fatalf("expected a create step despite the missing source, got %+v", p.Tools)
 	}
 }
 
 func TestBuild_TemplateActions(t *testing.T) {
+	// Rendering happens at execution time (a before hook may generate or
+	// update the source), so the plan decides only how the target will be
+	// treated: fresh create, replace-with-backup of a foreign file, or
+	// in-place update of ten's own previous output.
 	target := "/home/taro/.gitconfig.local"
-	rendered := "email=taro@example.com"
 	tests := []struct {
 		name    string
 		entry   plan.Entry
-		content []byte
 		managed bool // previously managed as a template per state
 		want    plan.Action
 	}{
 		{name: "missing target is created", entry: plan.Entry{}, want: plan.ActionCreate},
-		{name: "unmanaged existing file is replaced with backup", entry: plan.Entry{Exists: true}, content: []byte("user's own file"), want: plan.ActionReplace},
-		{name: "managed file with same content is a noop", entry: plan.Entry{Exists: true}, content: []byte(rendered), managed: true, want: plan.ActionNoop},
-		{name: "managed file with stale content is updated", entry: plan.Entry{Exists: true}, content: []byte("old render"), managed: true, want: plan.ActionUpdate},
-		{name: "managed target that is now a symlink is updated without content compare", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: "/dotfiles/git/x"}, managed: true, want: plan.ActionUpdate},
+		{name: "unmanaged existing file is replaced with backup", entry: plan.Entry{Exists: true}, want: plan.ActionReplace},
+		{name: "managed file is updated in place", entry: plan.Entry{Exists: true}, managed: true, want: plan.ActionUpdate},
+		{name: "managed target that is now a symlink is updated", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: "/dotfiles/git/x"}, managed: true, want: plan.ActionUpdate},
 		{name: "unmanaged symlink target is replaced with backup", entry: plan.Entry{Exists: true, IsSymlink: true, LinkDest: "/dotfiles/git/x"}, want: plan.ActionReplace},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			merged := config.Merged{
 				DotfilesRoot: "/dotfiles",
-				Vars:         map[string]string{"git_email": "taro@example.com"},
 				Tools:        map[string]config.Tool{"git": {Templates: map[string]string{"home:.gitconfig.local": "git/tmpl"}}},
 				Enabled:      map[string]bool{"git": true},
-			}
-			entries := map[string]plan.Entry{target: tt.entry}
-			files := map[string][]byte{"/dotfiles/git/tmpl": []byte("email={{ .Vars.git_email }}")}
-			if tt.content != nil {
-				files[target] = tt.content
 			}
 			current := state.State{ManagedResources: map[string]state.Resource{}}
 			if tt.managed {
 				current.ManagedResources[target] = state.Resource{Tool: "git", Type: "template", Source: "/dotfiles/git/tmpl"}
 			}
-			fx := &fakeInspector{entries: entries, files: files}
+			fx := &fakeInspector{entries: map[string]plan.Entry{target: tt.entry}}
 
 			p, err := plan.Build(plan.BuildParams{Merged: merged, Current: current, Env: testBuildEnv(), Inspector: fx})
 			if err != nil {
@@ -178,44 +152,10 @@ func TestBuild_TemplateActions(t *testing.T) {
 			if len(p.Tools) != 1 || len(p.Tools[0].Templates) != 1 {
 				t.Fatalf("expected one template step, got %+v", p.Tools)
 			}
-			step := p.Tools[0].Templates[0]
-			if step.Action != tt.want {
-				t.Fatalf("action = %q, want %q", step.Action, tt.want)
-			}
-			if step.Action != plan.ActionNoop && string(step.Content) != rendered {
-				t.Fatalf("step should carry the rendered content, got %q", step.Content)
+			if got := p.Tools[0].Templates[0].Action; got != tt.want {
+				t.Fatalf("action = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestBuild_SetsTenToolPerToolWhenRendering(t *testing.T) {
-	merged := config.Merged{
-		DotfilesRoot: "/dotfiles",
-		Tools: map[string]config.Tool{
-			"git":  {Templates: map[string]string{"home:.a": "a.tmpl"}},
-			"nvim": {Templates: map[string]string{"home:.b": "b.tmpl"}},
-		},
-		Enabled: map[string]bool{"git": true, "nvim": true},
-	}
-	fx := &fakeInspector{
-		entries: map[string]plan.Entry{},
-		files: map[string][]byte{
-			"/dotfiles/a.tmpl": []byte("tool={{ .Ten.Tool }}"),
-			"/dotfiles/b.tmpl": []byte("tool={{ .Ten.Tool }}"),
-		},
-	}
-
-	p, err := plan.Build(plan.BuildParams{Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: testBuildEnv(), Ten: render.SystemInfo{Hostname: "h"}, Inspector: fx})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	got := map[string]string{}
-	for _, tp := range p.Tools {
-		got[tp.Tool] = string(tp.Templates[0].Content)
-	}
-	if got["git"] != "tool=git" || got["nvim"] != "tool=nvim" {
-		t.Fatalf("Ten.Tool not set per tool: %+v", got)
 	}
 }
 
@@ -255,7 +195,7 @@ func TestBuild_OnceEligibility(t *testing.T) {
 				Tools:        map[string]config.Tool{"git": tt.tool},
 				Enabled:      map[string]bool{"git": true},
 			}
-			fx := &fakeInspector{entries: sources("/dotfiles/git/.gitconfig")}
+			fx := &fakeInspector{entries: map[string]plan.Entry{}}
 
 			p, err := plan.Build(plan.BuildParams{Merged: merged, Current: tt.current, Env: testBuildEnv(), Inspector: fx})
 			if err != nil {
@@ -292,8 +232,8 @@ func TestBuild_PruneActions(t *testing.T) {
 			name: "owned symlink with backup is restored",
 			res:  state.Resource{Tool: "old", Type: "symlink", Source: source, BackupPath: "/home/taro/.ten_backup/x"},
 			entries: map[string]plan.Entry{
-				target:                       {Exists: true, IsSymlink: true, LinkDest: source},
-				"/home/taro/.ten_backup/x":   {Exists: true},
+				target:                     {Exists: true, IsSymlink: true, LinkDest: source},
+				"/home/taro/.ten_backup/x": {Exists: true},
 			},
 			want: plan.ActionRestore,
 		},
@@ -318,10 +258,13 @@ func TestBuild_PruneActions(t *testing.T) {
 			want:    plan.ActionRemove,
 		},
 		{
-			name:    "recorded backup that no longer exists is an error",
+			// Backup existence is deliberately checked at execution time
+			// (fail-fast with partial progress), not at plan time, so one
+			// missing backup can't block the whole run from starting.
+			name:    "recorded backup missing on disk still plans a restore",
 			res:     state.Resource{Tool: "old", Type: "symlink", Source: source, BackupPath: "/home/taro/.ten_backup/gone"},
 			entries: map[string]plan.Entry{target: {Exists: true, IsSymlink: true, LinkDest: source}},
-			wantErr: "/home/taro/.ten_backup/gone",
+			want:    plan.ActionRestore,
 		},
 	}
 	for _, tt := range tests {
