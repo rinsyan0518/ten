@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
@@ -21,6 +22,11 @@ type UnlinkRequest struct {
 	// ContentHash is the recorded hash of the template output ten last
 	// wrote ("template" resources only; empty on pre-hashing records).
 	ContentHash string
+	// BackupRoot bounds the empty-directory cleanup after a restore
+	// (typically ~/.ten_backup): directories emptied by moving the
+	// backup away are removed up to and including this root, never
+	// beyond it. Empty disables the cleanup.
+	BackupRoot string
 }
 
 // UnlinkResult describes the outcome of removing or restoring a single
@@ -39,12 +45,11 @@ type UnlinkResult struct {
 // req.BackupPath is non-empty the backup is restored over the target,
 // otherwise the target is deleted.
 //
-// For "symlink" resources the target is verified first: it must still be
-// a symlink pointing at req.Source. If it isn't, the user has replaced
-// ten's resource with something of their own and Unlink refuses to touch
-// it (Skipped=true) instead of silently destroying it. Template output is
-// a plain file with no equivalent marker, so it cannot be verified this
-// way and is removed as recorded.
+// The target is verified first (see verifyOwned): a symlink must still
+// point at req.Source, and template output must still hash to
+// req.ContentHash. If it doesn't, the user has replaced ten's resource
+// with something of their own and Unlink refuses to touch it
+// (Skipped=true) instead of silently destroying it.
 func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 	info, err := os.Lstat(req.Target)
 	switch {
@@ -79,6 +84,13 @@ func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 		if err := os.Rename(req.BackupPath, req.Target); err != nil {
 			return UnlinkResult{}, fmt.Errorf("apply: restore backup %s -> %s: %w", req.BackupPath, req.Target, err)
 		}
+		// Moving the backup away may have emptied its timestamp directory
+		// (and mirrored path components under it); sweep those so
+		// ~/.ten_backup doesn't accumulate empty skeletons forever. Best
+		// effort — a failure here never fails the restore itself.
+		if req.BackupRoot != "" {
+			pruneEmptyDirs(filepath.Dir(req.BackupPath), req.BackupRoot)
+		}
 		return UnlinkResult{Target: req.Target, Restored: true}, nil
 	}
 
@@ -86,6 +98,26 @@ func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 		return UnlinkResult{}, fmt.Errorf("apply: remove %s: %w", req.Target, err)
 	}
 	return UnlinkResult{Target: req.Target}, nil
+}
+
+// pruneEmptyDirs removes dir and then each parent in turn, stopping at
+// the first directory that isn't empty (os.Remove refuses non-empty
+// directories) and never climbing past root. root itself is removed too
+// when it ends up empty.
+func pruneEmptyDirs(dir, root string) {
+	root = filepath.Clean(root)
+	for dir = filepath.Clean(dir); ; dir = filepath.Dir(dir) {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return // outside root — never touch anything up here
+		}
+		if err := os.Remove(dir); err != nil {
+			return // not empty (or already gone with a non-empty parent)
+		}
+		if dir == root {
+			return
+		}
+	}
 }
 
 // verifyOwned returns an empty string if the existing target still looks

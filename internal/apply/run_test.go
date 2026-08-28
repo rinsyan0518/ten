@@ -351,7 +351,13 @@ func TestExecute_ExecutesPrunesBeforeToolsAndUpdatesState(t *testing.T) {
 		"/home/taro/.config/old": {Tool: "old", Type: "symlink", Source: "/dotfiles/old/x"},
 	}}
 
-	fx := &fakeExecutor{}
+	var gotBackupRoot string
+	fx := &fakeExecutor{
+		UnlinkFunc: func(req apply.UnlinkRequest) (apply.UnlinkResult, error) {
+			gotBackupRoot = req.BackupRoot
+			return apply.UnlinkResult{Target: req.Target}, nil
+		},
+	}
 	result, newState, err := apply.Execute(apply.ExecParams{
 		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
 	})
@@ -367,6 +373,9 @@ func TestExecute_ExecutesPrunesBeforeToolsAndUpdatesState(t *testing.T) {
 	}
 	if _, ok := newState.ManagedResources["/home/taro/.config/old"]; ok {
 		t.Fatalf("pruned resource must leave state")
+	}
+	if gotBackupRoot != "/b" {
+		t.Fatalf("prune must pass the backup root for post-restore cleanup, got %q", gotBackupRoot)
 	}
 }
 

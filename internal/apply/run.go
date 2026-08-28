@@ -93,6 +93,7 @@ func Execute(p ExecParams) (Result, state.State, error) {
 			Source:      res.Source,
 			BackupPath:  step.BackupPath,
 			ContentHash: res.ContentHash,
+			BackupRoot:  p.BackupDir,
 		})
 		if err != nil {
 			return Result{Prunes: prunes}, newState, fmt.Errorf("apply: prune %s: %w", step.Target, err)

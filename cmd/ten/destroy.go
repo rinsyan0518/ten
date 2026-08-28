@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/pathresolve"
@@ -48,10 +49,11 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	}
 
 	result, remaining, runErr := apply.ExecuteDestroy(apply.DestroyExecParams{
-		Plan:     dp,
-		Current:  st,
-		Out:      cmd.OutOrStdout(),
-		Executor: apply.NewOSExecutor(),
+		Plan:      dp,
+		Current:   st,
+		BackupDir: filepath.Join(home, ".ten_backup"),
+		Out:       cmd.OutOrStdout(),
+		Executor:  apply.NewOSExecutor(),
 	})
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), formatDestroyPlan(result))
 
