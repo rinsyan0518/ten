@@ -17,19 +17,20 @@ type TemplateResult struct {
 }
 
 // templateContext is exposed to templates as ".", so `{{ .Vars.key }}`
-// resolves as described in the spec.
+// and `{{ .Ten.key }}` resolve as described in the spec.
 type templateContext struct {
 	Vars map[string]string
+	Ten  SystemInfo
 }
 
-// RenderTemplate renders the template at sourcePath using vars as
-// context and writes the result to target.
+// RenderTemplate renders the template at sourcePath using vars and ten
+// as context and writes the result to target.
 //
 // If alreadyManaged is false and target already exists, the existing
 // file is backed up under backupDir first (same scheme as Link). If
 // alreadyManaged is true, target is overwritten in place with no backup
 // (idempotent re-render — used once state tracking exists).
-func RenderTemplate(target, sourcePath string, vars map[string]string, backupDir string, alreadyManaged, dryRun bool) (TemplateResult, error) {
+func RenderTemplate(target, sourcePath string, vars map[string]string, ten SystemInfo, backupDir string, alreadyManaged, dryRun bool) (TemplateResult, error) {
 	tmplBytes, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: read template %s: %w", sourcePath, err)
@@ -39,7 +40,7 @@ func RenderTemplate(target, sourcePath string, vars map[string]string, backupDir
 		return TemplateResult{}, fmt.Errorf("apply: parse template %s: %w", sourcePath, err)
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, templateContext{Vars: vars}); err != nil {
+	if err := tmpl.Execute(&buf, templateContext{Vars: vars, Ten: ten}); err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: render template %s: %w", sourcePath, err)
 	}
 

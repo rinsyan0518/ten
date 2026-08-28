@@ -35,6 +35,11 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("apply: %w", err)
 	}
 
+	ten, err := apply.NewSystemInfo(home, current.Profile, current.DotfilesRoot)
+	if err != nil {
+		return fmt.Errorf("apply: %w", err)
+	}
+
 	merged, repoFound, err := loadMerged(current.DotfilesRoot, current.Profile)
 	if err != nil {
 		return fmt.Errorf("apply: load config: %w", err)
@@ -47,6 +52,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		Merged:   merged,
 		Current:  current,
 		Home:     home,
+		Ten:      ten,
 		DryRun:   dryRun,
 		Out:      cmd.OutOrStdout(),
 		Executor: apply.NewOSExecutor(),

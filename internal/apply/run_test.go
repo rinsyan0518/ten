@@ -18,7 +18,7 @@ type fakeExecutor struct {
 	calls              []string
 	LinkFunc           func(target, source, backupDir string, dryRun bool) (apply.LinkResult, error)
 	UnlinkFunc         func(req apply.UnlinkRequest, dryRun bool) (apply.UnlinkResult, error)
-	RenderTemplateFunc func(target, source string, vars map[string]string, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error)
+	RenderTemplateFunc func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error)
 	RunHookFunc        func(cmdStr string, out io.Writer, dryRun bool) error
 }
 
@@ -38,10 +38,10 @@ func (f *fakeExecutor) Unlink(req apply.UnlinkRequest, dryRun bool) (apply.Unlin
 	return apply.UnlinkResult{Target: req.Target}, nil
 }
 
-func (f *fakeExecutor) RenderTemplate(target, source string, vars map[string]string, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error) {
+func (f *fakeExecutor) RenderTemplate(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error) {
 	f.calls = append(f.calls, "template:"+target)
 	if f.RenderTemplateFunc != nil {
-		return f.RenderTemplateFunc(target, source, vars, backupDir, alreadyManaged, dryRun)
+		return f.RenderTemplateFunc(target, source, vars, ten, backupDir, alreadyManaged, dryRun)
 	}
 	return apply.TemplateResult{Target: target, Source: source}, nil
 }
@@ -156,6 +156,46 @@ func TestApply_RunsOnceHookWhenToolNewlyManagesATemplate(t *testing.T) {
 	}
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Once != "echo first-time" {
 		t.Fatalf("expected once to fire for a newly-managed template, got %+v", result.Outcomes)
+	}
+}
+
+func TestApply_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git":  {Templates: map[string]string{"home:.gitconfig.local": "git/gitconfig.local.tmpl"}},
+			"nvim": {Templates: map[string]string{"home:.config/nvim/local.lua": "nvim/local.lua.tmpl"}},
+		},
+		Enabled: map[string]bool{"git": true, "nvim": true},
+	}
+
+	gotTools := map[string]string{}
+	fx := &fakeExecutor{
+		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, alreadyManaged, dryRun bool) (apply.TemplateResult, error) {
+			gotTools[target] = ten.Tool
+			return apply.TemplateResult{Target: target, Source: source}, nil
+		},
+	}
+
+	_, _, err := apply.Apply(apply.RunParams{
+		Merged:   merged,
+		Current:  state.State{ManagedResources: map[string]state.Resource{}},
+		Home:     "/home/taro",
+		Ten:      apply.SystemInfo{Hostname: "test-host", Profile: "work"},
+		Out:      io.Discard,
+		Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := gotTools["/home/taro/.gitconfig.local"]; got != "git" {
+		t.Fatalf("git template got Ten.Tool = %q, want %q", got, "git")
+	}
+	if got := gotTools["/home/taro/.config/nvim/local.lua"]; got != "nvim" {
+		t.Fatalf("nvim template got Ten.Tool = %q, want %q", got, "nvim")
 	}
 }
 
