@@ -11,7 +11,6 @@ import (
 // DestroyParams configures a single ten destroy run.
 type DestroyParams struct {
 	Current  state.State
-	Home     string // unused by Destroy itself; kept for symmetry with RunParams
 	DryRun   bool
 	Out      io.Writer
 	Executor Executor

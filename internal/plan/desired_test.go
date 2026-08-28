@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/rinsyan0518/ten/internal/config"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/plan"
 )
 
@@ -20,7 +21,7 @@ func TestDesired_ResolvesLinksAndTemplatesInSortedKeyOrder(t *testing.T) {
 		},
 	}
 
-	got, err := plan.Desired(merged, []string{"git"}, "/home/taro")
+	got, err := plan.Desired(merged, []string{"git"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestDesired_ErrorsWhenTwoToolsClaimTheSameTarget(t *testing.T) {
 		},
 	}
 
-	_, err := plan.Desired(merged, []string{"git", "git-work"}, "/home/taro")
+	_, err := plan.Desired(merged, []string{"git", "git-work"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
 	if err == nil {
 		t.Fatalf("expected error for conflicting target, got nil")
 	}
@@ -66,7 +67,7 @@ func TestDesired_ErrorsWhenLinksAndTemplatesClaimTheSameTarget(t *testing.T) {
 		},
 	}
 
-	_, err := plan.Desired(merged, []string{"git"}, "/home/taro")
+	_, err := plan.Desired(merged, []string{"git"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
 	if err == nil {
 		t.Fatalf("expected error for link/template conflict on one target, got nil")
 	}
@@ -83,7 +84,7 @@ func TestDesired_ErrorsOnUnresolvableKey(t *testing.T) {
 		},
 	}
 
-	_, err := plan.Desired(merged, []string{"git"}, "/home/taro")
+	_, err := plan.Desired(merged, []string{"git"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
 	if err == nil {
 		t.Fatalf("expected error for unresolvable key")
 	}

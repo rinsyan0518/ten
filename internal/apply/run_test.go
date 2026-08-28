@@ -8,6 +8,7 @@ import (
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/config"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
@@ -58,8 +59,6 @@ func (f *fakeExecutor) RunHook(cmdStr string, out io.Writer, dryRun bool) error 
 }
 
 func TestApply_RunsToolsInDependencyOrderWithHooksAndLinks(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -80,7 +79,7 @@ func TestApply_RunsToolsInDependencyOrderWithHooksAndLinks(t *testing.T) {
 	result, newState, err := apply.Apply(apply.RunParams{
 		Merged:   merged,
 		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Home:     "/home/taro",
+		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
 		Out:      io.Discard,
 		Executor: fx,
 	})
@@ -101,8 +100,6 @@ func TestApply_RunsToolsInDependencyOrderWithHooksAndLinks(t *testing.T) {
 }
 
 func TestApply_RunsOnceHookWhenToolNewlyManagesASymlink(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -115,7 +112,7 @@ func TestApply_RunsOnceHookWhenToolNewlyManagesASymlink(t *testing.T) {
 	result, _, err := apply.Apply(apply.RunParams{
 		Merged:   merged,
 		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Home:     "/home/taro",
+		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
 		Out:      io.Discard,
 		Executor: fx,
 	})
@@ -133,8 +130,6 @@ func TestApply_RunsOnceHookWhenToolNewlyManagesASymlink(t *testing.T) {
 }
 
 func TestApply_RunsOnceHookWhenToolNewlyManagesATemplate(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -147,7 +142,7 @@ func TestApply_RunsOnceHookWhenToolNewlyManagesATemplate(t *testing.T) {
 	result, _, err := apply.Apply(apply.RunParams{
 		Merged:   merged,
 		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Home:     "/home/taro",
+		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
 		Out:      io.Discard,
 		Executor: fx,
 	})
@@ -160,8 +155,6 @@ func TestApply_RunsOnceHookWhenToolNewlyManagesATemplate(t *testing.T) {
 }
 
 func TestApply_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -182,7 +175,7 @@ func TestApply_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
 	_, _, err := apply.Apply(apply.RunParams{
 		Merged:   merged,
 		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Home:     "/home/taro",
+		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
 		Ten:      apply.SystemInfo{Hostname: "test-host", Profile: "work"},
 		Out:      io.Discard,
 		Executor: fx,
@@ -200,8 +193,6 @@ func TestApply_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
 }
 
 func TestApply_SkipsOnceHookWhenTargetAlreadyTrackedInState(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -221,7 +212,7 @@ func TestApply_SkipsOnceHookWhenTargetAlreadyTrackedInState(t *testing.T) {
 		},
 	}
 	result, _, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Merged: merged, Current: current, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -240,8 +231,6 @@ func TestApply_SkipsOnceHookWhenTargetAlreadyTrackedInState(t *testing.T) {
 }
 
 func TestApply_SkipsOnceHookForAToolWithNoResources(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -254,7 +243,7 @@ func TestApply_SkipsOnceHookForAToolWithNoResources(t *testing.T) {
 	result, _, err := apply.Apply(apply.RunParams{
 		Merged:   merged,
 		Current:  state.State{ManagedResources: map[string]state.Resource{}},
-		Home:     "/home/taro",
+		Env:      pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"},
 		Out:      io.Discard,
 		Executor: fx,
 	})
@@ -271,8 +260,6 @@ func TestApply_SkipsOnceHookForAToolWithNoResources(t *testing.T) {
 }
 
 func TestApply_PrunesResourcesNotInDesired(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -287,7 +274,7 @@ func TestApply_PrunesResourcesNotInDesired(t *testing.T) {
 
 	fx := &fakeExecutor{}
 	result, newState, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Merged: merged, Current: current, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -301,8 +288,6 @@ func TestApply_PrunesResourcesNotInDesired(t *testing.T) {
 }
 
 func TestApply_StopsOnLinkFailureAndKeepsPartialResult(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -322,7 +307,7 @@ func TestApply_StopsOnLinkFailureAndKeepsPartialResult(t *testing.T) {
 	}
 
 	result, _, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
 	})
 	if err == nil || !errors.Is(err, linkErr) {
 		t.Fatalf("expected error wrapping %v, got %v", linkErr, err)
@@ -333,8 +318,6 @@ func TestApply_StopsOnLinkFailureAndKeepsPartialResult(t *testing.T) {
 }
 
 func TestApply_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -350,7 +333,7 @@ func TestApply_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
 		},
 	}
 	_, newState, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Home: "/home/taro", Out: io.Discard, DryRun: true, Executor: fx,
+		Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, DryRun: true, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -364,8 +347,6 @@ func TestApply_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
 }
 
 func TestApply_IncludesBothChangedAndUpToDateToolsInOutcomes(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-
 	merged := config.Merged{
 		DotfilesRoot: "/dotfiles",
 		Tools: map[string]config.Tool{
@@ -388,7 +369,7 @@ func TestApply_IncludesBothChangedAndUpToDateToolsInOutcomes(t *testing.T) {
 		},
 	}
 	result, _, err := apply.Apply(apply.RunParams{
-		Merged: merged, Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Merged: merged, Current: current, Env: pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}, Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

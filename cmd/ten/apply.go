@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rinsyan0518/ten/internal/apply"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -29,8 +30,9 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("apply: resolve home dir: %w", err)
 	}
+	env := pathresolve.FromOS(home)
 
-	current, statePath, err := loadBootstrap(home)
+	current, statePath, err := loadBootstrap(env)
 	if err != nil {
 		return fmt.Errorf("apply: %w", err)
 	}
@@ -51,7 +53,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	result, newState, runErr := apply.Apply(apply.RunParams{
 		Merged:   merged,
 		Current:  current,
-		Home:     home,
+		Env:      env,
 		Ten:      ten,
 		DryRun:   dryRun,
 		Out:      cmd.OutOrStdout(),

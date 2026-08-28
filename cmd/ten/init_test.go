@@ -10,8 +10,9 @@ import (
 )
 
 // newInitTestHome creates an isolated HOME with $XDG_STATE_HOME pinned
-// under it. pathresolve.XDGStateHome checks $XDG_STATE_HOME before
-// falling back to a home-derived default, so pin it explicitly —
+// under it. runInit resolves its Env via pathresolve.FromOS, which
+// checks $XDG_STATE_HOME before falling back to a home-derived default,
+// so pin it explicitly —
 // otherwise a test's isolation depends on the host shell not exporting
 // XDG_STATE_HOME, which is not a safe assumption (this project is
 // itself a dotfiles manager; a dev machine bootstrapped with it would

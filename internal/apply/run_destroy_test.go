@@ -21,7 +21,7 @@ func TestDestroy_RemovesInDeterministicToolAndTargetOrder(t *testing.T) {
 
 	fx := &fakeExecutor{}
 	result, newState, err := apply.Destroy(apply.DestroyParams{
-		Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Current: current, Out: io.Discard, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -56,7 +56,7 @@ func TestDestroy_StopsOnUnlinkFailureAndKeepsPartialResult(t *testing.T) {
 	// Deterministic order is alphabetical by tool name, so git (succeeds) is
 	// processed before nvim (fails).
 	result, _, err := apply.Destroy(apply.DestroyParams{
-		Current: current, Home: "/home/taro", Out: io.Discard, Executor: fx,
+		Current: current, Out: io.Discard, Executor: fx,
 	})
 	if err == nil || !errors.Is(err, unlinkErr) {
 		t.Fatalf("expected error wrapping %v, got %v", unlinkErr, err)
@@ -78,7 +78,7 @@ func TestDestroy_PassesDryRunToExecutorAndSkipsStateWrites(t *testing.T) {
 		},
 	}
 	_, newState, err := apply.Destroy(apply.DestroyParams{
-		Current: current, Home: "/home/taro", Out: io.Discard, DryRun: true, Executor: fx,
+		Current: current, Out: io.Discard, DryRun: true, Executor: fx,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

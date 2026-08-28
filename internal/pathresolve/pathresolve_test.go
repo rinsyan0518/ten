@@ -57,35 +57,31 @@ func TestExpandHome(t *testing.T) {
 	}
 }
 
-func TestResolveKey(t *testing.T) {
+func TestFromOS(t *testing.T) {
 	tests := []struct {
 		name          string
-		key           string
 		xdgConfigHome string
-		want          string
-		wantErr       bool
+		xdgStateHome  string
+		want          Env
 	}{
-		{name: "home prefix", key: "home:.gitconfig", want: "/home/taro/.gitconfig"},
-		{name: "xdg prefix defaults under home/.config", key: "xdg:nvim", want: "/home/taro/.config/nvim"},
-		{name: "xdg prefix honors XDG_CONFIG_HOME override", key: "xdg:nvim", xdgConfigHome: "/custom/config", want: "/custom/config/nvim"},
-		{name: "unknown prefix errors", key: "unknown:.foo", wantErr: true},
+		{
+			name: "defaults under home when XDG vars are unset",
+			want: Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config", XDGStateHome: "/home/taro/.local/state"},
+		},
+		{
+			name:          "honors XDG overrides",
+			xdgConfigHome: "/custom/config",
+			xdgStateHome:  "/custom/state",
+			want:          Env{Home: "/home/taro", XDGConfigHome: "/custom/config", XDGStateHome: "/custom/state"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", tt.xdgConfigHome)
-			got, err := ResolveKey("/home/taro", tt.key)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil (result %q)", got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("got %q, want %q", got, tt.want)
+			t.Setenv("XDG_STATE_HOME", tt.xdgStateHome)
+			if got := FromOS("/home/taro"); got != tt.want {
+				t.Fatalf("got %+v, want %+v", got, tt.want)
 			}
 		})
 	}

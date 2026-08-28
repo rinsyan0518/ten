@@ -8,15 +8,18 @@ import (
 
 	"github.com/rinsyan0518/ten/internal/config"
 	"github.com/rinsyan0518/ten/internal/graph"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/plan"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
 // RunParams configures a single ten apply run.
 type RunParams struct {
-	Merged   config.Merged
-	Current  state.State
-	Home     string
+	Merged  config.Merged
+	Current state.State
+	// Env is resolved once by the caller (cmd/ten via pathresolve.FromOS);
+	// Apply and everything below it never read the process environment.
+	Env      pathresolve.Env
 	Ten      SystemInfo // Tool is zero-valued here; Apply fills it per tool
 	DryRun   bool
 	Out      io.Writer
@@ -75,12 +78,12 @@ func Apply(p RunParams) (Result, state.State, error) {
 		out = io.Discard
 	}
 
-	desired, err := plan.Desired(p.Merged, order, p.Home)
+	desired, err := plan.Desired(p.Merged, order, p.Env)
 	if err != nil {
 		return Result{}, p.Current, fmt.Errorf("apply: %w", err)
 	}
 
-	backupDir := filepath.Join(p.Home, ".ten_backup")
+	backupDir := filepath.Join(p.Env.Home, ".ten_backup")
 
 	desiredSet := make(map[string]bool, len(desired))
 	for _, d := range desired {

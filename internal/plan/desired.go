@@ -27,7 +27,7 @@ type Target struct {
 // left undetected, the second claimant would treat the first's resource
 // as a foreign file and back it up and replace it on every apply,
 // flip-flopping forever.
-func Desired(merged config.Merged, order []string, home string) ([]Target, error) {
+func Desired(merged config.Merged, order []string, env pathresolve.Env) ([]Target, error) {
 	var desired []Target
 	claimed := make(map[string]Target)
 	claim := func(t Target) error {
@@ -47,7 +47,7 @@ func Desired(merged config.Merged, order []string, home string) ([]Target, error
 		}
 		sort.Strings(linkKeys)
 		for _, key := range linkKeys {
-			target, err := pathresolve.ResolveKey(home, key)
+			target, err := pathresolve.Resolve(env, key)
 			if err != nil {
 				return nil, fmt.Errorf("tool %s: %w", name, err)
 			}
@@ -64,7 +64,7 @@ func Desired(merged config.Merged, order []string, home string) ([]Target, error
 		}
 		sort.Strings(templateKeys)
 		for _, key := range templateKeys {
-			target, err := pathresolve.ResolveKey(home, key)
+			target, err := pathresolve.Resolve(env, key)
 			if err != nil {
 				return nil, fmt.Errorf("tool %s: %w", name, err)
 			}

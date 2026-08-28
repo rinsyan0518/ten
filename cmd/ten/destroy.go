@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/rinsyan0518/ten/internal/apply"
+	"github.com/rinsyan0518/ten/internal/pathresolve"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -29,14 +30,13 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("destroy: resolve home dir: %w", err)
 	}
 
-	st, statePath, err := loadBootstrap(home)
+	st, statePath, err := loadBootstrap(pathresolve.FromOS(home))
 	if err != nil {
 		return fmt.Errorf("destroy: %w", err)
 	}
 
 	result, remaining, runErr := apply.Destroy(apply.DestroyParams{
 		Current:  st,
-		Home:     home,
 		DryRun:   dryRun,
 		Out:      cmd.OutOrStdout(),
 		Executor: apply.NewOSExecutor(),

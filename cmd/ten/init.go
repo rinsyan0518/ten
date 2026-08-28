@@ -49,7 +49,7 @@ func runInit(cmd *cobra.Command, path, profile string) error {
 		return fmt.Errorf("init: %s is not an existing directory", absPath)
 	}
 
-	statePath := statePathFor(home)
+	statePath := statePathFor(pathresolve.FromOS(home))
 	st, err := state.Load(statePath)
 	if err != nil {
 		return fmt.Errorf("init: load state: %w", err)
