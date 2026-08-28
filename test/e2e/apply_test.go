@@ -603,3 +603,71 @@ after = "exit 1"
 		t.Fatalf("last_applied changed on a failed run: got %s, want %s", got, want)
 	}
 }
+
+func TestApply_ReinitThroughSymlinkedRootKeepsLinksUpToDate(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	realRoot := home + "/real-dotfiles"
+	sb.Init(t, home, realRoot)
+	sb.WriteFile(t, realRoot+"/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, realRoot+"/git/.gitconfig", "x\n")
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+
+	// Re-initialize through a symlinked spelling of the same directory.
+	// init stores the resolved root, so the existing links must still be
+	// recognized as ten's own instead of being backed up and re-created.
+	sb.Exec(t, "ln -s "+realRoot+" "+home+"/alias-dotfiles")
+	if out, code := sb.Run(t, home, "init", "--path", home+"/alias-dotfiles"); code != 0 {
+		t.Fatalf("re-init through symlink failed (exit %d): %s", code, out)
+	}
+
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+	if strings.Contains(out, "create symlink") {
+		t.Fatalf("expected no re-created symlinks after re-init via symlink, got: %s", out)
+	}
+	if !strings.Contains(out, "up to date") {
+		t.Fatalf("expected the existing link to be reported up to date, got: %s", out)
+	}
+}
+
+func TestApply_RefusesStateWrittenByANewerTen(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "x\n")
+
+	statePath := home + "/.local/state/ten/ten.state.json"
+	stateJSON := sb.ReadFile(t, statePath)
+	future := strings.Replace(stateJSON, `"version": 1,`, `"version": 99,`, 1)
+	if future == stateJSON {
+		t.Fatalf("failed to bump version in state: %s", stateJSON)
+	}
+	// WriteFile's heredoc requires a trailing newline to terminate cleanly.
+	sb.WriteFile(t, statePath, future+"\n")
+
+	stdout, stderr, code := sb.Exec(t, "HOME="+home+" ten apply")
+	if code == 0 {
+		t.Fatalf("expected apply to refuse a newer state schema, got exit 0: %s", stdout)
+	}
+	if !strings.Contains(stdout+stderr, "newer") {
+		t.Fatalf("expected the error to explain the file comes from a newer ten, got: %s%s", stdout, stderr)
+	}
+	// The unreadable-by-design state must not have been rewritten.
+	if got := sb.ReadFile(t, statePath); !strings.Contains(got, `"version": 99`) {
+		t.Fatalf("state file must be left untouched, got: %s", got)
+	}
+}

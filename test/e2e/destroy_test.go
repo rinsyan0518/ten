@@ -346,3 +346,64 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected .gitconfig to remain a symlink under --dry-run")
 	}
 }
+
+func TestDestroy_SkipsTemplateOutputEditedByTheUser(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+templates = { "home:.gitconfig.local" = "git/tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/tmpl", "managed by ten\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed (exit %d): %s", code, out)
+	}
+
+	// The user takes the rendered file over; destroy must refuse to
+	// delete what is no longer ten's own output.
+	sb.WriteFile(t, home+"/.gitconfig.local", "my own edits\n")
+
+	out, code := sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	if !strings.Contains(out, "content changed") {
+		t.Fatalf("expected a warning naming the reason, got: %s", out)
+	}
+	if got := sb.ReadFile(t, home+"/.gitconfig.local"); got != "my own edits\n" {
+		t.Fatalf("the edited file must survive destroy, got %q", got)
+	}
+}
+
+func TestDestroy_RestoreLeavesNoEmptyBackupSkeleton(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "repo version\n")
+	sb.WriteFile(t, home+"/.gitconfig", "original\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed (exit %d): %s", code, out)
+	}
+	if out, code := sb.Run(t, home, "destroy"); code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+
+	if got := sb.ReadFile(t, home+"/.gitconfig"); got != "original\n" {
+		t.Fatalf("expected the backup restored, got %q", got)
+	}
+	// The restore emptied the only backup; the whole ~/.ten_backup tree
+	// must be gone instead of accumulating empty timestamp skeletons.
+	if _, _, ok := sb.Lstat(t, home+"/.ten_backup"); ok {
+		out, _, _ := sb.Exec(t, "find "+home+"/.ten_backup")
+		t.Fatalf("expected the emptied backup root to be removed, found:\n%s", out)
+	}
+}
