@@ -7,6 +7,7 @@ import (
 
 	"github.com/rinsyan0518/ten/internal/apply"
 	"github.com/rinsyan0518/ten/internal/pathresolve"
+	"github.com/rinsyan0518/ten/internal/render"
 	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +38,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("apply: %w", err)
 	}
 
-	ten, err := apply.NewSystemInfo(home, current.Profile, current.DotfilesRoot)
+	ten, err := render.NewSystemInfo(home, current.Profile, current.DotfilesRoot)
 	if err != nil {
 		return fmt.Errorf("apply: %w", err)
 	}

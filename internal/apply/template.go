@@ -1,12 +1,12 @@
 package apply
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
-	"text/template"
 	"time"
+
+	"github.com/rinsyan0518/ten/internal/render"
 )
 
 // TemplateResult describes the outcome of rendering a single template.
@@ -14,13 +14,6 @@ type TemplateResult struct {
 	Target     string
 	Source     string
 	BackupPath string
-}
-
-// templateContext is exposed to templates as ".", so `{{ .Vars.key }}`
-// and `{{ .Ten.key }}` resolve as described in the spec.
-type templateContext struct {
-	Vars map[string]string
-	Ten  SystemInfo
 }
 
 // RenderTemplate renders the template at sourcePath using vars and ten
@@ -35,16 +28,9 @@ func RenderTemplate(target, sourcePath string, vars map[string]string, ten Syste
 	if err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: read template %s: %w", sourcePath, err)
 	}
-	// missingkey=error: a reference to an undefined .Vars key must fail
-	// the render, not silently write "<no value>" into the target (e.g. a
-	// gitconfig on a machine whose ten.local.toml is missing or unreadable).
-	tmpl, err := template.New(filepath.Base(sourcePath)).Option("missingkey=error").Parse(string(tmplBytes))
+	rendered, err := render.Render(filepath.Base(sourcePath), tmplBytes, vars, ten)
 	if err != nil {
-		return TemplateResult{}, fmt.Errorf("apply: parse template %s: %w", sourcePath, err)
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, templateContext{Vars: vars, Ten: ten}); err != nil {
-		return TemplateResult{}, fmt.Errorf("apply: render template %s: %w", sourcePath, err)
+		return TemplateResult{}, fmt.Errorf("apply: %w", err)
 	}
 
 	var backupPath string
@@ -78,7 +64,7 @@ func RenderTemplate(target, sourcePath string, vars map[string]string, ten Syste
 			return TemplateResult{}, fmt.Errorf("apply: remove symlink at template target %s: %w", target, err)
 		}
 	}
-	if err := os.WriteFile(target, buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(target, rendered, 0o644); err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: write template output %s: %w", target, err)
 	}
 	return TemplateResult{Target: target, Source: sourcePath, BackupPath: backupPath}, nil
