@@ -88,7 +88,14 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	// profile after every apply, forcing a re-run of `ten init`.
 	newState.DotfilesRoot = current.DotfilesRoot
 	newState.Profile = current.Profile
-	newState.LastApplied = time.Now()
+	// LastApplied records the last apply that fully succeeded; a failed
+	// run keeps the previous timestamp so the field stays useful for
+	// diagnosing "when did this machine last converge".
+	if runErr == nil {
+		newState.LastApplied = time.Now()
+	} else {
+		newState.LastApplied = current.LastApplied
+	}
 	if saveErr := state.Save(statePath, newState); saveErr != nil && runErr == nil {
 		return fmt.Errorf("apply: save state: %w", saveErr)
 	}

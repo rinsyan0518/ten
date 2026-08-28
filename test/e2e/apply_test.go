@@ -561,3 +561,45 @@ templates = { "home:.zzz" = "z/missing.tmpl" }
 		t.Fatalf("expected the failed run to still report the symlink it created, got: %s", out)
 	}
 }
+
+func TestApply_FailedRunDoesNotUpdateLastApplied(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("first apply failed (exit %d): %s", code, out)
+	}
+	stateBefore := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+
+	// A tool whose after hook fails: the run errors, and last_applied
+	// must keep describing the last successful apply, not this one.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+after = "exit 1"
+`)
+	if _, code := sb.Run(t, home, "apply"); code == 0 {
+		t.Fatalf("expected the second apply to fail")
+	}
+	stateAfter := sb.ReadFile(t, home+"/.local/state/ten/ten.state.json")
+
+	lastApplied := func(s string) string {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "last_applied") {
+				return strings.TrimSpace(line)
+			}
+		}
+		t.Fatalf("no last_applied line in state: %s", s)
+		return ""
+	}
+	if got, want := lastApplied(stateAfter), lastApplied(stateBefore); got != want {
+		t.Fatalf("last_applied changed on a failed run: got %s, want %s", got, want)
+	}
+}
