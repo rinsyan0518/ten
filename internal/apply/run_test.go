@@ -20,7 +20,7 @@ type fakeExecutor struct {
 	LinkFunc           func(target, source, backupDir string) (apply.LinkResult, error)
 	UnlinkFunc         func(req apply.UnlinkRequest) (apply.UnlinkResult, error)
 	RenderTemplateFunc func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error)
-	RunHookFunc        func(cmdStr string, out io.Writer) error
+	RunHookFunc        func(cmdStr, dir string, out io.Writer) error
 }
 
 func (f *fakeExecutor) Link(target, source, backupDir string) (apply.LinkResult, error) {
@@ -47,13 +47,13 @@ func (f *fakeExecutor) RenderTemplate(target, source string, vars map[string]str
 	return apply.TemplateResult{Target: target, Source: source}, nil
 }
 
-func (f *fakeExecutor) RunHook(cmdStr string, out io.Writer) error {
+func (f *fakeExecutor) RunHook(cmdStr, dir string, out io.Writer) error {
 	if cmdStr == "" {
 		return nil
 	}
 	f.calls = append(f.calls, "hook:"+cmdStr)
 	if f.RunHookFunc != nil {
-		return f.RunHookFunc(cmdStr, out)
+		return f.RunHookFunc(cmdStr, dir, out)
 	}
 	return nil
 }
@@ -253,7 +253,7 @@ func TestExecute_FailedOnceHookLeavesTargetsUntrackedSoOnceRefires(t *testing.T)
 	}
 	hookErr := errors.New("once failed")
 	fx := &fakeExecutor{
-		RunHookFunc: func(cmdStr string, out io.Writer) error {
+		RunHookFunc: func(cmdStr, dir string, out io.Writer) error {
 			if cmdStr == "exit 1" {
 				return hookErr
 			}
@@ -293,7 +293,7 @@ func TestExecute_FailedOnceHookKeepsPreviouslyTrackedTargets(t *testing.T) {
 	}}
 	hookErr := errors.New("once failed")
 	fx := &fakeExecutor{
-		RunHookFunc: func(cmdStr string, out io.Writer) error {
+		RunHookFunc: func(cmdStr, dir string, out io.Writer) error {
 			if cmdStr == "exit 1" {
 				return hookErr
 			}

@@ -76,6 +76,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		BackupDir: filepath.Join(home, ".ten_backup"),
 		Vars:      merged.Vars,
 		Ten:       ten,
+		HookDir:   merged.DotfilesRoot,
 		Out:       cmd.OutOrStdout(),
 		Executor:  apply.NewOSExecutor(),
 	})

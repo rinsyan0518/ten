@@ -17,8 +17,11 @@ type ExecParams struct {
 	// Vars and Ten feed template rendering, which happens here rather
 	// than at plan time: a tool's before hook may generate or update the
 	// template source, so rendering must wait until after it has run.
-	Vars     map[string]string
-	Ten      SystemInfo // Tool is zero-valued here; Execute fills it per tool
+	Vars map[string]string
+	Ten  SystemInfo // Tool is zero-valued here; Execute fills it per tool
+	// HookDir is the working directory every hook runs in (the dotfiles
+	// root), so hook behavior doesn't depend on where ten was invoked.
+	HookDir  string
 	Out      io.Writer
 	Executor Executor
 }
@@ -113,7 +116,7 @@ func Execute(p ExecParams) (Result, state.State, error) {
 			return Result{Outcomes: outcomes, Prunes: prunes}, newState, fmt.Errorf("apply: tool %s: %w", tp.Tool, err)
 		}
 
-		if err := p.Executor.RunHook(tp.Before, out); err != nil {
+		if err := p.Executor.RunHook(tp.Before, p.HookDir, out); err != nil {
 			return fail(err)
 		}
 
@@ -157,7 +160,7 @@ func Execute(p ExecParams) (Result, state.State, error) {
 			outcome.Templates = append(outcome.Templates, result)
 		}
 
-		if err := p.Executor.RunHook(tp.Once, out); err != nil {
+		if err := p.Executor.RunHook(tp.Once, p.HookDir, out); err != nil {
 			// Roll back tracking of targets this run newly managed for
 			// this tool (the resources themselves stay on disk). Recording
 			// them would make the next run consider them already tracked
@@ -178,7 +181,7 @@ func Execute(p ExecParams) (Result, state.State, error) {
 		}
 		outcome.Once = tp.Once
 
-		if err := p.Executor.RunHook(tp.After, out); err != nil {
+		if err := p.Executor.RunHook(tp.After, p.HookDir, out); err != nil {
 			return fail(err)
 		}
 		outcome.After = tp.After
