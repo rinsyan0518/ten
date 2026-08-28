@@ -7,10 +7,34 @@ import (
 	"strings"
 )
 
-// Env carries the directories needed to resolve prefixed path keys.
+// Env carries every environment-derived directory the rest of the
+// pipeline needs. It is resolved once at the composition root (cmd/ten,
+// via FromOS) and passed down by value: no package below cmd/ten reads
+// the process environment itself, so a stray HOME/XDG_* leak can only
+// enter through one place.
 type Env struct {
 	Home          string
 	XDGConfigHome string
+	XDGStateHome  string
+}
+
+// FromOS resolves Env from the process environment for the given home:
+// $XDG_CONFIG_HOME falling back to home/.config, $XDG_STATE_HOME falling
+// back to home/.local/state. It is the only function in this package —
+// and the only place below cmd/ten — that reads environment variables.
+func FromOS(home string) Env {
+	env := Env{
+		Home:          home,
+		XDGConfigHome: filepath.Join(home, ".config"),
+		XDGStateHome:  filepath.Join(home, ".local", "state"),
+	}
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+		env.XDGConfigHome = v
+	}
+	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
+		env.XDGStateHome = v
+	}
+	return env
 }
 
 // Resolve converts a prefixed key like "home:.gitconfig" or "xdg:nvim" into
@@ -36,26 +60,4 @@ func ExpandHome(path, home string) string {
 		return filepath.Join(home, strings.TrimPrefix(path, "~/"))
 	}
 	return path
-}
-
-// ResolveKey resolves a prefixed key against home, reading
-// $XDG_CONFIG_HOME (falling back to home/.config) for the xdg: prefix.
-func ResolveKey(home, key string) (string, error) {
-	return Resolve(Env{Home: home, XDGConfigHome: xdgConfigHome(home)}, key)
-}
-
-// xdgConfigHome returns $XDG_CONFIG_HOME, falling back to home/.config.
-func xdgConfigHome(home string) string {
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		return v
-	}
-	return filepath.Join(home, ".config")
-}
-
-// XDGStateHome returns $XDG_STATE_HOME, falling back to home/.local/state.
-func XDGStateHome(home string) string {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return v
-	}
-	return filepath.Join(home, ".local", "state")
 }

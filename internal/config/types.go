@@ -9,10 +9,11 @@ type Tool struct {
 	DependsOn []string          `toml:"depends_on"`
 	Before    string            `toml:"before"`
 	// Once runs a shell command the first time this tool newly manages a
-	// link or template — i.e. when apply.Apply finds at least one of the
+	// link or template — i.e. when plan.Build finds at least one of the
 	// tool's desired targets absent from state.State.ManagedResources at
 	// the start of the run. It never fires again once a target is
-	// tracked, and never fires for a tool with no links/templates.
+	// tracked, and never fires for a tool with no links/templates. A
+	// failed once leaves those targets untracked so it re-arms next run.
 	Once  string `toml:"once"`
 	After string `toml:"after"`
 }

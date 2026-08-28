@@ -18,9 +18,8 @@ type LinkResult struct {
 // Link ensures target is a symlink pointing at source. If target already
 // exists and is not already that exact symlink, the existing file/dir is
 // backed up under backupDir first. If target is already the correct
-// symlink, Link is a no-op (Skipped=true). If dryRun is true, no
-// filesystem changes are made.
-func Link(target, source, backupDir string, dryRun bool) (LinkResult, error) {
+// symlink, Link is a no-op (Skipped=true).
+func Link(target, source, backupDir string) (LinkResult, error) {
 	// Refuse before creating a symlink into nothing: os.Symlink happily
 	// produces a dangling link, which would then be reported as a success.
 	if _, err := os.Lstat(source); err != nil {
@@ -40,20 +39,17 @@ func Link(target, source, backupDir string, dryRun bool) (LinkResult, error) {
 		if current == source {
 			return LinkResult{Target: target, Source: source, Skipped: true}, nil
 		}
-		return backupThenLink(target, source, backupDir, dryRun)
+		return backupThenLink(target, source, backupDir)
 	case err == nil:
-		return backupThenLink(target, source, backupDir, dryRun)
+		return backupThenLink(target, source, backupDir)
 	case os.IsNotExist(err):
-		return createLink(target, source, dryRun)
+		return createLink(target, source)
 	default:
 		return LinkResult{}, fmt.Errorf("apply: lstat %s: %w", target, err)
 	}
 }
 
-func createLink(target, source string, dryRun bool) (LinkResult, error) {
-	if dryRun {
-		return LinkResult{Target: target, Source: source}, nil
-	}
+func createLink(target, source string) (LinkResult, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return LinkResult{}, fmt.Errorf("apply: mkdir for %s: %w", target, err)
 	}
@@ -63,11 +59,8 @@ func createLink(target, source string, dryRun bool) (LinkResult, error) {
 	return LinkResult{Target: target, Source: source}, nil
 }
 
-func backupThenLink(target, source, backupDir string, dryRun bool) (LinkResult, error) {
+func backupThenLink(target, source, backupDir string) (LinkResult, error) {
 	backupPath := filepath.Join(backupDir, time.Now().Format("20060102_150405"), stripLeadingSlash(target))
-	if dryRun {
-		return LinkResult{Target: target, Source: source, BackupPath: backupPath}, nil
-	}
 	if err := os.MkdirAll(filepath.Dir(backupPath), 0o755); err != nil {
 		return LinkResult{}, fmt.Errorf("apply: mkdir backup dir for %s: %w", target, err)
 	}

@@ -3,16 +3,16 @@ package apply
 import (
 	"fmt"
 	"io"
-	"sort"
+	"maps"
 
+	"github.com/rinsyan0518/ten/internal/plan"
 	"github.com/rinsyan0518/ten/internal/state"
 )
 
-// DestroyParams configures a single ten destroy run.
-type DestroyParams struct {
+// DestroyExecParams configures a single execution of a destroy plan.
+type DestroyExecParams struct {
+	Plan     plan.DestroyPlan
 	Current  state.State
-	Home     string // unused by Destroy itself; kept for symmetry with RunParams
-	DryRun   bool
 	Out      io.Writer
 	Executor Executor
 }
@@ -26,76 +26,64 @@ type DestroyEntry struct {
 }
 
 // DestroyOutcome groups one tool's destroyed resources, mirroring
-// Apply's per-tool grouping.
+// Execute's per-tool grouping.
 type DestroyOutcome struct {
 	Tool    string
 	Entries []DestroyEntry
 }
 
-// DestroyResult is everything that happened during a Destroy run, in
-// display order, regardless of whether the run succeeded or stopped
-// early.
+// DestroyResult is everything that happened during an ExecuteDestroy
+// run, in display order, regardless of whether the run succeeded or
+// stopped early.
 type DestroyResult struct {
 	Outcomes []DestroyOutcome
 }
 
-// Destroy removes every resource recorded in p.Current, in a
-// deterministic order (tool name, then target name within a tool) derived
-// entirely from p.Current — it reads no config. That's safe because
-// Destroy never runs hooks (the only thing depends_on orders) and every
-// Unlink call is independent of every other tool's state. It always
-// returns the DestroyResult and state.State reflecting everything
+// ExecuteDestroy performs the removals a plan.BuildDestroy plan
+// describes, in plan order. Skip steps never reach the Executor. It
+// always returns the DestroyResult and state.State reflecting everything
 // actually removed or restored so far, even when it returns a non-nil
-// error (fail-fast). Destroy performs no state I/O; the caller is
-// responsible for loading Current and saving the returned state.State.
-// Destroy does not update state.State.LastApplied.
-func Destroy(p DestroyParams) (DestroyResult, state.State, error) {
-	byTool := make(map[string][]string)
-	for target, res := range p.Current.ManagedResources {
-		byTool[res.Tool] = append(byTool[res.Tool], target)
-	}
-	tools := make([]string, 0, len(byTool))
-	for tool := range byTool {
-		sort.Strings(byTool[tool])
-		tools = append(tools, tool)
-	}
-	sort.Strings(tools)
-
+// error (fail-fast). ExecuteDestroy performs no state I/O; the caller
+// loads Current and saves the returned state.State. It does not update
+// state.State.LastApplied.
+func ExecuteDestroy(p DestroyExecParams) (DestroyResult, state.State, error) {
 	out := p.Out
 	if out == nil {
 		out = io.Discard
 	}
 
 	remaining := state.State{LastApplied: p.Current.LastApplied, ManagedResources: make(map[string]state.Resource, len(p.Current.ManagedResources))}
-	for target, res := range p.Current.ManagedResources {
-		remaining.ManagedResources[target] = res
-	}
+	maps.Copy(remaining.ManagedResources, p.Current.ManagedResources)
 
 	var outcomes []DestroyOutcome
-	for _, tool := range tools {
-		outcome := DestroyOutcome{Tool: tool}
-		for _, target := range byTool[tool] {
-			res := p.Current.ManagedResources[target]
+	for _, tp := range p.Plan.Tools {
+		outcome := DestroyOutcome{Tool: tp.Tool}
+		for _, step := range tp.Steps {
+			if step.Action == plan.ActionSkip {
+				_, _ = fmt.Fprintf(out, "warning: skipping %s: %s\n", step.Target, step.SkipReason)
+				continue
+			}
+			res := p.Current.ManagedResources[step.Target]
 			result, err := p.Executor.Unlink(UnlinkRequest{
-				Target:     target,
-				Type:       res.Type,
+				Target:     step.Target,
+				Type:       step.Type,
 				Source:     res.Source,
-				BackupPath: res.BackupPath,
-			}, p.DryRun)
+				BackupPath: step.BackupPath,
+			})
 			if err != nil {
 				if len(outcome.Entries) > 0 {
 					outcomes = append(outcomes, outcome)
 				}
-				return DestroyResult{Outcomes: outcomes}, remaining, fmt.Errorf("destroy: tool %s: %w", tool, err)
+				return DestroyResult{Outcomes: outcomes}, remaining, fmt.Errorf("destroy: tool %s: %w", tp.Tool, err)
 			}
+			// Unlink re-verifies ownership at execution time; a skip here
+			// means the disk changed between plan and execution.
 			if result.Skipped {
 				_, _ = fmt.Fprintf(out, "warning: skipping %s: %s\n", result.Target, result.SkipReason)
 				continue
 			}
-			if !p.DryRun {
-				delete(remaining.ManagedResources, target)
-			}
-			outcome.Entries = append(outcome.Entries, DestroyEntry{Result: result, Type: res.Type, BackupPath: res.BackupPath})
+			delete(remaining.ManagedResources, step.Target)
+			outcome.Entries = append(outcome.Entries, DestroyEntry{Result: result, Type: step.Type, BackupPath: step.BackupPath})
 		}
 		if len(outcome.Entries) > 0 {
 			outcomes = append(outcomes, outcome)

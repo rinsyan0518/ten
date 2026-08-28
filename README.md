@@ -161,7 +161,8 @@ Two details that aren't obvious from the config alone:
 
 - **Hooks always run for an enabled tool**, regardless of whether its `links`/`templates` actually changed, and even if the tool defines only hooks with no resources at all.
 - **A failing hook stops the whole run.** If `before`, `once`, or `after` exits non-zero, `ten apply` stops immediately — tools later in DAG order never run.
-- **`once` fires at most once per tool.** It runs only when this apply run causes the tool to newly manage a `links`/`templates` target that wasn't already recorded in `ten.state.json`; it never fires for a tool with no `links`/`templates`.
+- **`once` fires at most once per tool.** It runs only when this apply run causes the tool to newly manage a `links`/`templates` target that wasn't already recorded in `ten.state.json`; it never fires for a tool with no `links`/`templates`. If the `once` hook itself fails, the targets it would have covered are not recorded, so the next `ten apply` fires `once` again rather than silently losing the setup command.
+- **Unchanged resources are left untouched.** An already-correct symlink and a template whose rendered output equals what is already on disk are shown as `up to date` and not rewritten (no mtime churn).
 
 Later sections cover dependency order, config layering, and hook execution in more detail.
 
@@ -186,6 +187,11 @@ before = "echo before"                                                # shell co
 once   = "echo once"                                                  # shell command run only the first time this tool newly manages a link/template
 after  = "echo after"                                                 # shell command run after
 ```
+
+Two safety checks fail an apply up front:
+
+- **Undefined template variables are an error.** A template referencing a `.Vars` key no layer defines fails instead of silently writing `<no value>` into the target. This includes `{{ if .Vars.optional }}` on an undeclared key — declare the key (even as an empty string) in some layer to branch on it.
+- **Duplicate targets are an error.** Two entries resolving to the same target path — from different tools, or from one tool's `links` and `templates` — are rejected, naming both claimants.
 
 #### Dependency order
 
