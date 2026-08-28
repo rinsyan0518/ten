@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -46,6 +47,53 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 	}
 	if got.ManagedResources["/home/taro/.config/nvim"] != want.ManagedResources["/home/taro/.config/nvim"] {
 		t.Fatalf("resource mismatch: got %+v", got.ManagedResources)
+	}
+}
+
+func TestSave_ReplacesExistingFileAtomically(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ten", "ten.state.json")
+
+	if err := state.Save(path, state.State{Profile: "one"}); err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after first Save: %v", err)
+	}
+
+	if err := state.Save(path, state.State{Profile: "two"}); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after second Save: %v", err)
+	}
+
+	// A crash mid-write must never leave a truncated, unparsable
+	// ten.state.json: Save has to write a fresh file and rename it into
+	// place, not truncate the existing file in place. Rename semantics
+	// mean the path refers to a new file afterwards.
+	if os.SameFile(before, after) {
+		t.Fatalf("Save truncated the existing state file in place; expected write-to-temp-then-rename")
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("read state dir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != filepath.Base(path) {
+			t.Fatalf("Save left extra file %q in state dir", e.Name())
+		}
+	}
+
+	got, err := state.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Profile != "two" {
+		t.Fatalf("Profile mismatch after atomic replace: got %q want %q", got.Profile, "two")
 	}
 }
 
