@@ -17,6 +17,7 @@ type RunParams struct {
 	Merged   config.Merged
 	Current  state.State
 	Home     string
+	Ten      SystemInfo
 	DryRun   bool
 	Out      io.Writer
 	Executor Executor
@@ -181,7 +182,9 @@ func Apply(p RunParams) (Result, state.State, error) {
 				// symlink into the dotfiles repo, and treating it as ten's
 				// own output would render straight through it.
 				alreadyManaged := p.Current.ManagedResources[d.Target].Type == "template"
-				result, err := p.Executor.RenderTemplate(d.Target, d.Source, p.Merged.Vars, backupDir, alreadyManaged, p.DryRun)
+				ten := p.Ten
+				ten.Tool = name
+				result, err := p.Executor.RenderTemplate(d.Target, d.Source, p.Merged.Vars, ten, backupDir, alreadyManaged, p.DryRun)
 				if err != nil {
 					return fail(err)
 				}

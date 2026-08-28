@@ -9,7 +9,7 @@ import "io"
 type Executor interface {
 	Link(target, source, backupDir string, dryRun bool) (LinkResult, error)
 	Unlink(req UnlinkRequest, dryRun bool) (UnlinkResult, error)
-	RenderTemplate(target, source string, vars map[string]string, backupDir string, alreadyManaged, dryRun bool) (TemplateResult, error)
+	RenderTemplate(target, source string, vars map[string]string, ten SystemInfo, backupDir string, alreadyManaged, dryRun bool) (TemplateResult, error)
 	RunHook(cmdStr string, out io.Writer, dryRun bool) error
 }
 
@@ -27,8 +27,8 @@ func (osExecutor) Unlink(req UnlinkRequest, dryRun bool) (UnlinkResult, error) {
 	return Unlink(req, dryRun)
 }
 
-func (osExecutor) RenderTemplate(target, source string, vars map[string]string, backupDir string, alreadyManaged, dryRun bool) (TemplateResult, error) {
-	return RenderTemplate(target, source, vars, backupDir, alreadyManaged, dryRun)
+func (osExecutor) RenderTemplate(target, source string, vars map[string]string, ten SystemInfo, backupDir string, alreadyManaged, dryRun bool) (TemplateResult, error) {
+	return RenderTemplate(target, source, vars, ten, backupDir, alreadyManaged, dryRun)
 }
 
 func (osExecutor) RunHook(cmdStr string, out io.Writer, dryRun bool) error {
