@@ -94,3 +94,53 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 		t.Fatalf("unexpected content after second apply: %q", got)
 	}
 }
+
+func TestApply_RendersTemplateWithTenContext(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+	root := home + "/dotfiles"
+
+	sb.Init(t, home, root, "work")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git-work]
+templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/gitconfig.local.tmpl", "os={{ .Ten.OS }}\narch={{ .Ten.Arch }}\nhostname={{ .Ten.Hostname }}\nhome={{ .Ten.Home }}\nprofile={{ .Ten.Profile }}\ntool={{ .Ten.Tool }}\nroot={{ .Ten.DotfilesRoot }}\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code != 0 {
+		t.Fatalf("ten apply failed (exit %d): %s", code, out)
+	}
+
+	got := sb.ReadFile(t, home+"/.gitconfig.local")
+	values := map[string]string{}
+	for _, line := range strings.Split(strings.TrimRight(got, "\n"), "\n") {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			t.Fatalf("unexpected rendered line %q in %q", line, got)
+		}
+		values[parts[0]] = parts[1]
+	}
+
+	if values["os"] != "linux" {
+		t.Fatalf("os = %q, want %q", values["os"], "linux")
+	}
+	if values["arch"] == "" {
+		t.Fatalf("arch is empty, rendered: %q", got)
+	}
+	if values["hostname"] == "" {
+		t.Fatalf("hostname is empty, rendered: %q", got)
+	}
+	if values["home"] != home {
+		t.Fatalf("home = %q, want %q", values["home"], home)
+	}
+	if values["profile"] != "work" {
+		t.Fatalf("profile = %q, want %q", values["profile"], "work")
+	}
+	if values["tool"] != "git-work" {
+		t.Fatalf("tool = %q, want %q", values["tool"], "git-work")
+	}
+	if values["root"] != root {
+		t.Fatalf("root = %q, want %q", values["root"], root)
+	}
+}
