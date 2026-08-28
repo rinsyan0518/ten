@@ -1,6 +1,8 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +16,20 @@ type Resource struct {
 	Type       string `json:"type"` // "symlink" | "template"
 	Source     string `json:"source"`
 	BackupPath string `json:"backup_path,omitempty"`
+	// ContentHash is HashContent of the template output ten last wrote
+	// ("template" resources only). It lets destroy/prune verify the file
+	// is still ten's own before deleting it, the way a symlink's
+	// destination identifies a "symlink" resource. Empty on records
+	// written before content hashing existed; such templates are removed
+	// unverified, as they always were.
+	ContentHash string `json:"content_hash,omitempty"`
+}
+
+// HashContent returns the hash used in Resource.ContentHash for the
+// given file content: sha256, hex-encoded.
+func HashContent(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 // CurrentVersion is the schema version this build of ten writes.

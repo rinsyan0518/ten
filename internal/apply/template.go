@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rinsyan0518/ten/internal/render"
+	"github.com/rinsyan0518/ten/internal/state"
 )
 
 // TemplateResult describes the outcome of rendering a single template.
@@ -18,6 +19,10 @@ type TemplateResult struct {
 	// Skipped is set when the target already held exactly the rendered
 	// content and nothing was written (idempotent re-apply).
 	Skipped bool
+	// ContentHash is state.HashContent of the rendered output, reported
+	// on the skip path too so pre-hashing state records get backfilled
+	// by an idempotent re-apply.
+	ContentHash string
 }
 
 // RenderTemplate renders the template at source using vars and ten as
@@ -40,6 +45,7 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 	if err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: %w", err)
 	}
+	contentHash := state.HashContent(content)
 
 	info, lstatErr := os.Lstat(target)
 	exists := lstatErr == nil
@@ -66,7 +72,7 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 			return TemplateResult{}, fmt.Errorf("apply: read %s: %w", target, err)
 		}
 		if bytes.Equal(current, content) {
-			return TemplateResult{Target: target, Source: source, Skipped: true}, nil
+			return TemplateResult{Target: target, Source: source, Skipped: true, ContentHash: contentHash}, nil
 		}
 	}
 
@@ -84,5 +90,5 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 	if err := os.WriteFile(target, content, 0o644); err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: write template output %s: %w", target, err)
 	}
-	return TemplateResult{Target: target, Source: source, BackupPath: backupPath}, nil
+	return TemplateResult{Target: target, Source: source, BackupPath: backupPath, ContentHash: contentHash}, nil
 }

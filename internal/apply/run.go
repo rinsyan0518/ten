@@ -88,10 +88,11 @@ func Execute(p ExecParams) (Result, state.State, error) {
 		}
 		res := p.Current.ManagedResources[step.Target]
 		result, err := p.Executor.Unlink(UnlinkRequest{
-			Target:     step.Target,
-			Type:       step.Type,
-			Source:     res.Source,
-			BackupPath: step.BackupPath,
+			Target:      step.Target,
+			Type:        step.Type,
+			Source:      res.Source,
+			BackupPath:  step.BackupPath,
+			ContentHash: res.ContentHash,
 		})
 		if err != nil {
 			return Result{Prunes: prunes}, newState, fmt.Errorf("apply: prune %s: %w", step.Target, err)
@@ -156,7 +157,7 @@ func Execute(p ExecParams) (Result, state.State, error) {
 			if backupPath == "" {
 				backupPath = p.Current.ManagedResources[step.Target].BackupPath
 			}
-			newState.ManagedResources[step.Target] = state.Resource{Tool: tp.Tool, Type: "template", Source: step.Source, BackupPath: backupPath}
+			newState.ManagedResources[step.Target] = state.Resource{Tool: tp.Tool, Type: "template", Source: step.Source, BackupPath: backupPath, ContentHash: result.ContentHash}
 			outcome.Templates = append(outcome.Templates, result)
 		}
 

@@ -65,10 +65,11 @@ func ExecuteDestroy(p DestroyExecParams) (DestroyResult, state.State, error) {
 			}
 			res := p.Current.ManagedResources[step.Target]
 			result, err := p.Executor.Unlink(UnlinkRequest{
-				Target:     step.Target,
-				Type:       step.Type,
-				Source:     res.Source,
-				BackupPath: step.BackupPath,
+				Target:      step.Target,
+				Type:        step.Type,
+				Source:      res.Source,
+				BackupPath:  step.BackupPath,
+				ContentHash: res.ContentHash,
 			})
 			if err != nil {
 				if len(outcome.Entries) > 0 {

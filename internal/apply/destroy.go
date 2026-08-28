@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/rinsyan0518/ten/internal/pathresolve"
+	"github.com/rinsyan0518/ten/internal/state"
 )
 
 // UnlinkRequest describes a single managed resource to take back out of
@@ -17,6 +18,9 @@ type UnlinkRequest struct {
 	Type       string // "symlink" | "template"
 	Source     string
 	BackupPath string
+	// ContentHash is the recorded hash of the template output ten last
+	// wrote ("template" resources only; empty on pre-hashing records).
+	ContentHash string
 }
 
 // UnlinkResult describes the outcome of removing or restoring a single
@@ -86,20 +90,36 @@ func Unlink(req UnlinkRequest) (UnlinkResult, error) {
 
 // verifyOwned returns an empty string if the existing target still looks
 // like the resource ten recorded, or a human-readable reason if it does
-// not.
+// not. A symlink is verified by its destination; a template by the hash
+// of the content ten last wrote (records from before content hashing
+// carry no hash and pass unverified, as they always did).
 func verifyOwned(req UnlinkRequest, info os.FileInfo) string {
-	if req.Type != "symlink" {
-		return ""
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		return "no longer a symlink created by ten"
-	}
-	dest, err := os.Readlink(req.Target)
-	if err != nil {
-		return fmt.Sprintf("could not read symlink (%v)", err)
-	}
-	if !pathresolve.EqualPaths(dest, req.Source) {
-		return fmt.Sprintf("symlink now points at %s, not %s", dest, req.Source)
+	switch req.Type {
+	case "symlink":
+		if info.Mode()&os.ModeSymlink == 0 {
+			return "no longer a symlink created by ten"
+		}
+		dest, err := os.Readlink(req.Target)
+		if err != nil {
+			return fmt.Sprintf("could not read symlink (%v)", err)
+		}
+		if !pathresolve.EqualPaths(dest, req.Source) {
+			return fmt.Sprintf("symlink now points at %s, not %s", dest, req.Source)
+		}
+	case "template":
+		if req.ContentHash == "" {
+			return ""
+		}
+		if !info.Mode().IsRegular() {
+			return "no longer a regular file written by ten"
+		}
+		content, err := os.ReadFile(req.Target)
+		if err != nil {
+			return fmt.Sprintf("could not read file (%v)", err)
+		}
+		if state.HashContent(content) != req.ContentHash {
+			return "content changed since ten wrote it"
+		}
 	}
 	return ""
 }

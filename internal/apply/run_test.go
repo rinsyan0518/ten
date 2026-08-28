@@ -163,6 +163,30 @@ func TestExecute_SetsTenToolPerToolWhenRenderingTemplates(t *testing.T) {
 	}
 }
 
+func TestExecute_RecordsTemplateContentHashInState(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:      "git",
+			Templates: []plan.TemplateStep{{Target: "/home/taro/.gitconfig.local", Source: "/dotfiles/git/tmpl", Action: plan.ActionCreate}},
+		}},
+	}
+	fx := &fakeExecutor{
+		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error) {
+			return apply.TemplateResult{Target: target, Source: source, ContentHash: "hash-of-render"}, nil
+		},
+	}
+
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := newState.ManagedResources["/home/taro/.gitconfig.local"].ContentHash; got != "hash-of-render" {
+		t.Fatalf("expected the rendered content hash recorded in state, got %q", got)
+	}
+}
+
 func TestExecute_RecordsExecutorReportedUpToDateTemplate(t *testing.T) {
 	pl := plan.Plan{
 		Tools: []plan.ToolPlan{{
