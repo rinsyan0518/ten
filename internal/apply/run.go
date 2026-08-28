@@ -17,7 +17,7 @@ type RunParams struct {
 	Merged   config.Merged
 	Current  state.State
 	Home     string
-	Ten      SystemInfo
+	Ten      SystemInfo // Tool is zero-valued here; Apply fills it per tool
 	DryRun   bool
 	Out      io.Writer
 	Executor Executor
