@@ -158,6 +158,22 @@ func Execute(p ExecParams) (Result, state.State, error) {
 		}
 
 		if err := p.Executor.RunHook(tp.Once, out); err != nil {
+			// Roll back tracking of targets this run newly managed for
+			// this tool (the resources themselves stay on disk). Recording
+			// them would make the next run consider them already tracked
+			// and never re-fire once — the failed setup command would be
+			// silently lost forever. Untracked, the next apply re-links
+			// them idempotently and arms once again.
+			for _, step := range tp.Links {
+				if _, tracked := p.Current.ManagedResources[step.Target]; !tracked {
+					delete(newState.ManagedResources, step.Target)
+				}
+			}
+			for _, step := range tp.Templates {
+				if _, tracked := p.Current.ManagedResources[step.Target]; !tracked {
+					delete(newState.ManagedResources, step.Target)
+				}
+			}
 			return fail(err)
 		}
 		outcome.Once = tp.Once

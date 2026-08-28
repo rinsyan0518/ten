@@ -241,6 +241,80 @@ func TestExecute_RunsOnceHookWhenArmed(t *testing.T) {
 	}
 }
 
+func TestExecute_FailedOnceHookLeavesTargetsUntrackedSoOnceRefires(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool: "git",
+			Links: []plan.LinkStep{
+				{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate},
+			},
+			Once: "exit 1",
+		}},
+	}
+	hookErr := errors.New("once failed")
+	fx := &fakeExecutor{
+		RunHookFunc: func(cmdStr string, out io.Writer) error {
+			if cmdStr == "exit 1" {
+				return hookErr
+			}
+			return nil
+		},
+	}
+
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if err == nil || !errors.Is(err, hookErr) {
+		t.Fatalf("expected the once failure to propagate, got %v", err)
+	}
+	// If the newly-managed target were recorded despite the once failure,
+	// the next apply would see it as already tracked and never re-fire
+	// once — the setup command would be silently lost forever.
+	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; ok {
+		t.Fatalf("targets newly managed this run must stay untracked when their once hook fails")
+	}
+}
+
+func TestExecute_FailedOnceHookKeepsPreviouslyTrackedTargets(t *testing.T) {
+	// git already tracks .gitconfig from an earlier run; this run adds
+	// .gitignore and once fails. Only the new target may be rolled back.
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool: "git",
+			Links: []plan.LinkStep{
+				{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionNoop},
+				{Target: "/home/taro/.gitignore", Source: "/dotfiles/git/.gitignore", Action: plan.ActionCreate},
+			},
+			Once: "exit 1",
+		}},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig"},
+	}}
+	hookErr := errors.New("once failed")
+	fx := &fakeExecutor{
+		RunHookFunc: func(cmdStr string, out io.Writer) error {
+			if cmdStr == "exit 1" {
+				return hookErr
+			}
+			return nil
+		},
+	}
+
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if err == nil || !errors.Is(err, hookErr) {
+		t.Fatalf("expected the once failure to propagate, got %v", err)
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; !ok {
+		t.Fatalf("previously tracked targets must survive a once failure")
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.gitignore"]; ok {
+		t.Fatalf("the newly managed target must be rolled back from tracking")
+	}
+}
+
 func TestExecute_ExecutesPrunesBeforeToolsAndUpdatesState(t *testing.T) {
 	pl := plan.Plan{
 		Prunes: []plan.PruneStep{{Target: "/home/taro/.config/old", Type: "symlink", Action: plan.ActionRemove}},
