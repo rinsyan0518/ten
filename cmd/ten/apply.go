@@ -83,9 +83,10 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 	// apply.Execute builds newState from scratch (ManagedResources only);
 	// it doesn't know about the bootstrap fields, so carry them over
 	// explicitly or a saved ten.state.json would lose dotfiles_root/
-	// profile after every apply, forcing a re-run of `ten init`.
-	newState.DotfilesRoot = current.DotfilesRoot
-	newState.Profile = current.Profile
+	// profile/external_roots after every apply, forcing a re-run of
+	// `ten init`/`ten root add` (and, for ExternalRoots, silently
+	// pruning every resource an external root manages on the next run).
+	carryBootstrap(&newState, current)
 	// LastApplied records the last apply that fully succeeded; a failed
 	// run keeps the previous timestamp so the field stays useful for
 	// diagnosing "when did this machine last converge".

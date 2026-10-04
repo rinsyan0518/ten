@@ -42,12 +42,25 @@ func loadBootstrap(env pathresolve.Env) (st state.State, statePath string, err e
 	return st, statePath, nil
 }
 
-// loadMerged loads ten.local.toml, ten.toml, and ten.<profile>.toml from
-// dotfilesRoot and returns the merged configuration. It is the single
-// source of truth for config loading shared by the apply and destroy
-// commands. repoFound reports whether any repository config file
-// (ten.toml or ten.<profile>.toml) was actually present; apply uses it as
-// a safety check (see checkDesiredState).
+// carryBootstrap copies the bootstrap fields set by `ten init`/`ten root`
+// from src onto dst, leaving dst's other fields (e.g. ManagedResources)
+// untouched. apply.Execute/ExecuteDestroy rebuild state from scratch and
+// don't know about these fields, so every caller must restore them.
+func carryBootstrap(dst *state.State, src state.State) {
+	dst.DotfilesRoot = src.DotfilesRoot
+	dst.Profile = src.Profile
+	dst.ExternalRoots = src.ExternalRoots
+}
+
+// loadMerged loads ten.toml, ten.<profile>.toml, each registered external
+// root's ten.toml, and ten.local.toml from dotfilesRoot and returns the
+// merged configuration. Layers apply in that order — base, then profile,
+// then external roots in registration order, then ten.local.toml last
+// (highest priority) — and it is the single source of truth for config
+// loading shared by the apply and destroy commands. repoFound reports
+// whether any repository config file (ten.toml or ten.<profile>.toml)
+// was actually present; apply uses it as a safety check (see
+// checkDesiredState).
 func loadMerged(dotfilesRoot, profile string, externalRoots []state.ExternalRoot) (merged config.Merged, repoFound bool, err error) {
 	base, baseFound, err := config.LoadFile(filepath.Join(dotfilesRoot, "ten.toml"))
 	if err != nil {
