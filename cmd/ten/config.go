@@ -48,7 +48,7 @@ func loadBootstrap(env pathresolve.Env) (st state.State, statePath string, err e
 // commands. repoFound reports whether any repository config file
 // (ten.toml or ten.<profile>.toml) was actually present; apply uses it as
 // a safety check (see checkDesiredState).
-func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound bool, err error) {
+func loadMerged(dotfilesRoot, profile string, externalRoots []state.ExternalRoot) (merged config.Merged, repoFound bool, err error) {
 	base, baseFound, err := config.LoadFile(filepath.Join(dotfilesRoot, "ten.toml"))
 	if err != nil {
 		return config.Merged{}, false, err
@@ -64,6 +64,20 @@ func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound b
 		if ok {
 			repoFound = true
 			layers = append(layers, config.Layer{Root: dotfilesRoot, File: profileFile})
+		}
+	}
+
+	for _, root := range externalRoots {
+		info, statErr := os.Stat(root.Path)
+		if statErr != nil || !info.IsDir() {
+			return config.Merged{}, false, fmt.Errorf("external root %q: %s is not an existing directory", root.Name, root.Path)
+		}
+		rootFile, ok, err := config.LoadFile(filepath.Join(root.Path, "ten.toml"))
+		if err != nil {
+			return config.Merged{}, false, err
+		}
+		if ok {
+			layers = append(layers, config.Layer{Root: root.Path, File: rootFile})
 		}
 	}
 
