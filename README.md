@@ -52,7 +52,7 @@ go build -o ten ./cmd/ten
 
 ## Quick start
 
-`ten` works with three kinds of config/state:
+`ten` works with four kinds of config/state:
 
 | File | Location | Track in your dotfiles repo? | Role |
 |---|---|---|---|
@@ -288,7 +288,7 @@ Neither `ten apply` nor `ten destroy` supports targeting individual tools — wh
 
 Before removing anything, `ten destroy` (and apply's pruning) verifies each resource is still the one ten created: a symlink must still point at its recorded source, and template output must still match the content ten last wrote. Anything you've since replaced or edited is skipped with a warning instead of deleted.
 
-`ten destroy` never runs hooks — `depends_on` only orders hook execution during `apply`, and destroy ignores it entirely. It also doesn't delete `ten.state.json`: after removing or restoring every managed resource, it rewrites the file with an empty managed-resources record, keeping the bootstrap fields (`dotfiles_root`/`profile`) set by `ten init`.
+`ten destroy` never runs hooks — `depends_on` only orders hook execution during `apply`, and destroy ignores it entirely. It also doesn't delete `ten.state.json`: after removing or restoring every managed resource, it rewrites the file with an empty managed-resources record, keeping the bootstrap fields (`dotfiles_root`/`profile`/registered external roots) set by `ten init`/`ten root`.
 
 `ten init`'s `--profile` leaves the existing profile unchanged when omitted; pass `--profile ""` explicitly to clear it.
 
