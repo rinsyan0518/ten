@@ -34,9 +34,21 @@ func HashContent(content []byte) string {
 
 // CurrentVersion is the schema version this build of ten writes.
 // History: 0 = files written before the field existed; 1 = the field
-// itself, no other change. Bump it only when the schema changes in a
-// way an older ten must not misread.
-const CurrentVersion = 1
+// itself, no other change; 2 = ExternalRoots added. Bump it only when
+// the schema changes in a way an older ten must not misread — an older
+// ten ignoring ExternalRoots would prune every resource an external
+// root's tools manage, mistaking them for resources removed from config.
+const CurrentVersion = 2
+
+// ExternalRoot is a named additional config root — e.g. a private repo
+// holding company-specific tools — registered via `ten root add`. Its
+// ten.toml layers between the profile layer and ten.local.toml (see
+// internal/config.Merge), and its tools' links/templates/hooks resolve
+// against Path instead of DotfilesRoot.
+type ExternalRoot struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
 
 // State is the parsed contents of ten.state.json.
 type State struct {
@@ -46,6 +58,10 @@ type State struct {
 	Version          int                 `json:"version,omitempty"`
 	DotfilesRoot     string              `json:"dotfiles_root,omitempty"`
 	Profile          string              `json:"profile,omitempty"`
+	// ExternalRoots is ordered — that order IS the merge order
+	// internal/config.Merge uses, highest priority last. Managed by
+	// `ten root add/remove/list`.
+	ExternalRoots    []ExternalRoot      `json:"external_roots,omitempty"`
 	LastApplied      time.Time           `json:"last_applied"`
 	ManagedResources map[string]Resource `json:"managed_resources"`
 }
