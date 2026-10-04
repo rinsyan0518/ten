@@ -446,3 +446,25 @@ type testWriter struct{ buf []byte }
 func (w *testWriter) Write(p []byte) (int, error) { w.buf = append(w.buf, p...); return len(p), nil }
 func (w *testWriter) String() string              { return string(w.buf) }
 func (w *testWriter) contains(s string) bool      { return strings.Contains(w.String(), s) }
+
+func TestExecute_PassesToolPlanHookDirToRunHook(t *testing.T) {
+	var gotDirs []string
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{
+			{Tool: "zsh-work", Before: "echo before", Once: "echo once", After: "echo after", HookDir: "/work-root"},
+		},
+	}
+	fx := &fakeExecutor{RunHookFunc: func(cmdStr, dir string, out io.Writer) error {
+		gotDirs = append(gotDirs, dir)
+		return nil
+	}}
+
+	_, _, err := apply.Execute(apply.ExecParams{Plan: pl, Current: emptyState(), BackupDir: "/home/taro/.ten_backup", Out: io.Discard, Executor: fx})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := []string{"/work-root", "/work-root", "/work-root"}
+	if !reflect.DeepEqual(gotDirs, want) {
+		t.Fatalf("hook dirs = %+v, want %+v", gotDirs, want)
+	}
+}
