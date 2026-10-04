@@ -54,16 +54,16 @@ func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound b
 		return config.Merged{}, false, err
 	}
 	repoFound = baseFound
+	layers := []config.Layer{{Root: dotfilesRoot, File: base}}
 
-	var profilePtr *config.File
 	if profile != "" {
 		profileFile, ok, err := config.LoadFile(filepath.Join(dotfilesRoot, "ten."+profile+".toml"))
 		if err != nil {
 			return config.Merged{}, false, err
 		}
 		if ok {
-			profilePtr = &profileFile
 			repoFound = true
+			layers = append(layers, config.Layer{Root: dotfilesRoot, File: profileFile})
 		}
 	}
 
@@ -71,12 +71,11 @@ func loadMerged(dotfilesRoot, profile string) (merged config.Merged, repoFound b
 	if err != nil {
 		return config.Merged{}, false, err
 	}
-	var localPtr *config.File
 	if localFound {
-		localPtr = &localFile
+		layers = append(layers, config.Layer{Root: dotfilesRoot, File: localFile})
 	}
 
-	merged, err = config.Merge(base, profilePtr, localPtr)
+	merged, err = config.Merge(layers)
 	if err != nil {
 		return config.Merged{}, false, err
 	}
