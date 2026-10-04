@@ -44,7 +44,7 @@ func runApply(cmd *cobra.Command, dryRun bool) error {
 		return fmt.Errorf("apply: %w", err)
 	}
 
-	merged, repoFound, err := loadMerged(current.DotfilesRoot, current.Profile)
+	merged, repoFound, err := loadMerged(current.DotfilesRoot, current.Profile, current.ExternalRoots)
 	if err != nil {
 		return fmt.Errorf("apply: load config: %w", err)
 	}
