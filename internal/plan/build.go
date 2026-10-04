@@ -90,6 +90,10 @@ type ToolPlan struct {
 	// desired target absent from Current.ManagedResources).
 	Once  string
 	After string
+	// HookDir is the working directory Before/Once/After run in: the
+	// tool's HookRoot if any layer set one of its hook fields, else
+	// Merged.DotfilesRoot.
+	HookDir string
 }
 
 func (t ToolPlan) empty() bool {
@@ -155,7 +159,11 @@ func Build(p BuildParams) (Plan, error) {
 	var tools []ToolPlan
 	for _, name := range order {
 		tool := p.Merged.Tools[name]
-		tp := ToolPlan{Tool: name, Before: tool.Before, After: tool.After}
+		hookDir := p.Merged.HookRoot[name]
+		if hookDir == "" {
+			hookDir = p.Merged.DotfilesRoot
+		}
+		tp := ToolPlan{Tool: name, Before: tool.Before, After: tool.After, HookDir: hookDir}
 
 		newlyManaged := false
 		for _, d := range byTool[name] {

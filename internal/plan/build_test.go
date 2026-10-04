@@ -365,3 +365,32 @@ func TestBuild_OmitsToolsWithNothingToDo(t *testing.T) {
 		t.Fatalf("expected a tool with no hooks and no resources to be omitted, got %+v", p.Tools)
 	}
 }
+
+func TestBuild_SetsToolPlanHookDirFromMergedHookRootWithDotfilesRootFallback(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git":      {After: "echo git-done"},
+			"zsh-work": {Links: map[string]string{"home:.zshrc": "zsh/.zshrc"}, Once: "echo work-once"},
+		},
+		Enabled:  map[string]bool{"git": true, "zsh-work": true},
+		HookRoot: map[string]string{"zsh-work": "/work-root"},
+	}
+	fx := &fakeInspector{entries: map[string]plan.Entry{}}
+
+	p, err := plan.Build(plan.BuildParams{Merged: merged, Current: state.State{ManagedResources: map[string]state.Resource{}}, Env: testBuildEnv(), Inspector: fx})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	byTool := map[string]plan.ToolPlan{}
+	for _, tp := range p.Tools {
+		byTool[tp.Tool] = tp
+	}
+	if byTool["git"].HookDir != "/dotfiles" {
+		t.Fatalf("expected git's HookDir to fall back to DotfilesRoot, got %q", byTool["git"].HookDir)
+	}
+	if byTool["zsh-work"].HookDir != "/work-root" {
+		t.Fatalf("expected zsh-work's HookDir to use HookRoot, got %q", byTool["zsh-work"].HookDir)
+	}
+}
