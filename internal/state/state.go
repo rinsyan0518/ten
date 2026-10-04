@@ -55,9 +55,9 @@ type State struct {
 	// Version is the schema version of the file this State was loaded
 	// from (0 for pre-versioning files). Save stamps CurrentVersion
 	// regardless of the value here.
-	Version          int                 `json:"version,omitempty"`
-	DotfilesRoot     string              `json:"dotfiles_root,omitempty"`
-	Profile          string              `json:"profile,omitempty"`
+	Version      int    `json:"version,omitempty"`
+	DotfilesRoot string `json:"dotfiles_root,omitempty"`
+	Profile      string `json:"profile,omitempty"`
 	// ExternalRoots is ordered — that order IS the merge order
 	// internal/config.Merge uses, highest priority last. Managed by
 	// `ten root add/remove/list`.
