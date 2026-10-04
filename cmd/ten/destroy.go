@@ -61,8 +61,7 @@ func runDestroy(cmd *cobra.Command, dryRun bool) error {
 	// Current but not the bootstrap fields (it doesn't know about
 	// them) — restore them explicitly before saving, same reasoning
 	// as runApply.
-	remaining.DotfilesRoot = st.DotfilesRoot
-	remaining.Profile = st.Profile
+	carryBootstrap(&remaining, st)
 	if saveErr := state.Save(statePath, remaining); saveErr != nil {
 		if runErr != nil {
 			return fmt.Errorf("%w (also failed to save partial state: %v)", runErr, saveErr)

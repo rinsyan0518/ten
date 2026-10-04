@@ -103,6 +103,34 @@ links = { "home:.zshrc.d/work.zsh" = "zsh/work.zsh" }
 	}
 }
 
+func TestLoadMerged_LocalFileWinsOverExternalRoot(t *testing.T) {
+	dotfilesRoot := t.TempDir()
+	writeTenFile(t, filepath.Join(dotfilesRoot, "ten.toml"), `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+`)
+	writeTenFile(t, filepath.Join(dotfilesRoot, "ten.local.toml"), `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig.local" }
+`)
+	workRoot := t.TempDir()
+	writeTenFile(t, filepath.Join(workRoot, "ten.toml"), `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig.work" }
+`)
+
+	merged, _, err := loadMerged(dotfilesRoot, "", []state.ExternalRoot{{Name: "work", Path: workRoot}})
+	if err != nil {
+		t.Fatalf("loadMerged: %v", err)
+	}
+	if got := merged.Tools["git"].Links["home:.gitconfig"]; got != "git/.gitconfig.local" {
+		t.Fatalf("expected ten.local.toml to win over the external root, got %q", got)
+	}
+	if merged.LinksRoot["git"] != dotfilesRoot {
+		t.Fatalf("expected LinksRoot to follow ten.local.toml's root (dotfilesRoot), got %q", merged.LinksRoot["git"])
+	}
+}
+
 func TestLoadMerged_MultipleExternalRootsMergeInRegistrationOrder(t *testing.T) {
 	dotfilesRoot := t.TempDir()
 	writeTenFile(t, filepath.Join(dotfilesRoot, "ten.toml"), "")
