@@ -1,9 +1,11 @@
 package e2e_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/rinsyan0518/ten/internal/state"
 	"github.com/rinsyan0518/ten/internal/testutil/tencli"
 )
 
@@ -656,7 +658,8 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 
 	statePath := home + "/.local/state/ten/ten.state.json"
 	stateJSON := sb.ReadFile(t, statePath)
-	future := strings.Replace(stateJSON, `"version": 1,`, `"version": 99,`, 1)
+	old := fmt.Sprintf(`"version": %d,`, state.CurrentVersion)
+	future := strings.Replace(stateJSON, old, `"version": 99,`, 1)
 	if future == stateJSON {
 		t.Fatalf("failed to bump version in state: %s", stateJSON)
 	}

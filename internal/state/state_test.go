@@ -3,6 +3,7 @@ package state_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -170,5 +171,50 @@ func TestSaveThenLoad_RoundTripsBootstrapFields(t *testing.T) {
 	}
 	if got.Profile != want.Profile {
 		t.Fatalf("Profile mismatch: got %q want %q", got.Profile, want.Profile)
+	}
+}
+
+func TestSaveThenLoad_RoundTripsExternalRoots(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ten", "ten.state.json")
+
+	want := state.State{
+		DotfilesRoot: "/home/taro/dotfiles",
+		ExternalRoots: []state.ExternalRoot{
+			{Name: "work", Path: "/home/taro/work-dotfiles"},
+			{Name: "client2", Path: "/home/taro/client2-dotfiles"},
+		},
+		ManagedResources: map[string]state.Resource{},
+	}
+
+	if err := state.Save(path, want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := state.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !reflect.DeepEqual(got.ExternalRoots, want.ExternalRoots) {
+		t.Fatalf("ExternalRoots mismatch: got %+v want %+v", got.ExternalRoots, want.ExternalRoots)
+	}
+}
+
+func TestLoad_AcceptsVersion1FileWithoutExternalRoots(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ten.state.json")
+	v1 := `{"version": 1, "dotfiles_root": "/home/taro/dotfiles", "last_applied": "2026-08-11T22:44:05Z", "managed_resources": {}}`
+	if err := os.WriteFile(path, []byte(v1), 0o644); err != nil {
+		t.Fatalf("seed v1 state: %v", err)
+	}
+
+	got, err := state.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.ExternalRoots) != 0 {
+		t.Fatalf("expected no external roots from a v1 file, got %+v", got.ExternalRoots)
+	}
+	if got.DotfilesRoot != "/home/taro/dotfiles" {
+		t.Fatalf("expected the rest of a v1 file to still load correctly, got %+v", got)
 	}
 }

@@ -52,13 +52,14 @@ go build -o ten ./cmd/ten
 
 ## Quick start
 
-`ten` works with three kinds of config/state:
+`ten` works with four kinds of config/state:
 
 | File | Location | Track in your dotfiles repo? | Role |
 |---|---|---|---|
 | `ten.toml` / `ten.<profile>.toml` | `<dotfiles_root>/` | Yes | Desired state — which tools go where |
 | `ten.local.toml` | `<dotfiles_root>/ten.local.toml` | No (add to `.gitignore`) | Machine-local settings: secret vars and local tool overrides |
-| `ten.state.json` | `$XDG_STATE_HOME/ten/ten.state.json` (falls back to `~/.local/state/ten/ten.state.json`) | N/A (lives outside the repo) | Bootstrap pointer (`dotfiles_root`/`profile`, set by `ten init`) plus an auto-generated record of what `ten` currently manages |
+| external root `ten.toml` | `<external_root_path>/ten.toml`, registered via `ten root add` | Yes, but in its own separate repo | Shared config (e.g. company-only tools) you don't want in your personal dotfiles repo at all |
+| `ten.state.json` | `$XDG_STATE_HOME/ten/ten.state.json` (falls back to `~/.local/state/ten/ten.state.json`) | N/A (lives outside the repo) | Bootstrap pointer (`dotfiles_root`/`profile`/registered external roots, set by `ten init`/`ten root`) plus an auto-generated record of what `ten` currently manages |
 
 ### 1. Point ten at your dotfiles repo
 
@@ -262,10 +263,23 @@ enabled = true
 
 `vars` follows the same base → profile → local layering but merges per variable key rather than per tool: a variable declared in a later layer overrides only that one key, leaving variables declared solely in earlier layers untouched.
 
+#### External config roots
+
+If some config shouldn't live in your personal dotfiles repo at all — e.g. company-only tools you don't want mixed into a repo you might make public — register a separate repo as a named external root:
+
+```bash
+ten root add work ~/work-dotfiles   # ~/work-dotfiles has its own ten.toml
+```
+
+Its `ten.toml` layers in after your profile and before `ten.local.toml`: `ten.toml` → `ten.<profile>.toml` → external roots (in the order you registered them) → `ten.local.toml`. A tool defined there has its `links`/`templates` sources and `before`/`once`/`after` working directory resolved against the external root's path instead of `dotfiles_root`. `ten` never clones, pulls, or authenticates against an external root's repository — you manage that repo yourself; `ten` only reads whatever local path you point it at.
+
 ## Commands
 
 ```
 ten init [--path <path>] [--profile <name>]   Point ten at a dotfiles repository (--path defaults to the current directory)
+ten root add <name> <path>                    Register (or update) a named external config root; its ten.toml layers in after your profile and before ten.local.toml
+ten root remove <name>                        Remove a registered external config root
+ten root list                                 List registered external config roots in merge order
 ten apply [--dry-run]                         Apply every tool resolved by the current profile, in DAG order
 ten destroy [--dry-run]                       Remove everything ten manages using ten.state.json only (no config required), restoring backups where they exist
 ```
@@ -274,7 +288,7 @@ Neither `ten apply` nor `ten destroy` supports targeting individual tools — wh
 
 Before removing anything, `ten destroy` (and apply's pruning) verifies each resource is still the one ten created: a symlink must still point at its recorded source, and template output must still match the content ten last wrote. Anything you've since replaced or edited is skipped with a warning instead of deleted.
 
-`ten destroy` never runs hooks — `depends_on` only orders hook execution during `apply`, and destroy ignores it entirely. It also doesn't delete `ten.state.json`: after removing or restoring every managed resource, it rewrites the file with an empty managed-resources record, keeping the bootstrap fields (`dotfiles_root`/`profile`) set by `ten init`.
+`ten destroy` never runs hooks — `depends_on` only orders hook execution during `apply`, and destroy ignores it entirely. It also doesn't delete `ten.state.json`: after removing or restoring every managed resource, it rewrites the file with an empty managed-resources record, keeping the bootstrap fields (`dotfiles_root`/`profile`/registered external roots) set by `ten init`/`ten root`.
 
 `ten init`'s `--profile` leaves the existing profile unchanged when omitted; pass `--profile ""` explicitly to clear it.
 

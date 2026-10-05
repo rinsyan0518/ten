@@ -63,14 +63,17 @@ func TestMerge_LocalOverridesRepoFieldLevel(t *testing.T) {
 		"git":  {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, Before: "echo repo-before", Once: "echo repo-once", After: "echo repo-after"},
 		"nvim": {Links: map[string]string{"xdg:nvim": "nvim"}},
 	}}
-	local := &File{
+	local := File{
 		Vars: map[string]string{"k": "v"},
 		Tools: map[string]Tool{
 			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}},
 		},
 	}
 
-	got, err := Merge(repo, nil, local)
+	got, err := Merge([]Layer{
+		{Root: "/dotfiles", File: repo},
+		{Root: "/dotfiles", File: local},
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -93,14 +96,18 @@ func TestMerge_OverrideChainBaseProfileLocal(t *testing.T) {
 	base := File{Tools: map[string]Tool{
 		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
 	}}
-	profile := &File{Tools: map[string]Tool{
+	profile := File{Tools: map[string]Tool{
 		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.work"}},
 	}}
-	local := &File{Tools: map[string]Tool{
+	local := File{Tools: map[string]Tool{
 		"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig.local"}},
 	}}
 
-	got, err := Merge(base, profile, local)
+	got, err := Merge([]Layer{
+		{Root: "/dotfiles", File: base},
+		{Root: "/dotfiles", File: profile},
+		{Root: "/dotfiles", File: local},
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,10 +119,14 @@ func TestMerge_OverrideChainBaseProfileLocal(t *testing.T) {
 
 func TestMerge_VarsOverrideChainBaseProfileLocal(t *testing.T) {
 	base := File{Vars: map[string]string{"git_email": "base@example.com", "shared": "base"}}
-	profile := &File{Vars: map[string]string{"git_email": "profile@example.com"}}
-	local := &File{Vars: map[string]string{"git_email": "local@example.com"}}
+	profile := File{Vars: map[string]string{"git_email": "profile@example.com"}}
+	local := File{Vars: map[string]string{"git_email": "local@example.com"}}
 
-	got, err := Merge(base, profile, local)
+	got, err := Merge([]Layer{
+		{Root: "/dotfiles", File: base},
+		{Root: "/dotfiles", File: profile},
+		{Root: "/dotfiles", File: local},
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -127,14 +138,14 @@ func TestMerge_VarsOverrideChainBaseProfileLocal(t *testing.T) {
 	}
 }
 
-func TestMerge_NilProfileAndLocalUseBaseOnly(t *testing.T) {
+func TestMerge_SingleLayerUsesItsRoot(t *testing.T) {
 	base := File{Tools: map[string]Tool{"git": {}}}
-	got, err := Merge(base, nil, nil)
+	got, err := Merge([]Layer{{Root: "/dotfiles", File: base}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, ok := got.Tools["git"]; !ok {
-		t.Fatalf("expected base tool to survive with nil profile and local, got %+v", got.Tools)
+		t.Fatalf("expected base tool to survive with a single layer, got %+v", got.Tools)
 	}
 	if !got.Enabled["git"] {
 		t.Fatalf("expected git enabled by fallback, got %+v", got.Enabled)
@@ -145,7 +156,7 @@ func TestMerge_EnabledFalseInBaseDisablesToolByDefault(t *testing.T) {
 	disabled := false
 	base := File{Tools: map[string]Tool{"git-work": {Enabled: &disabled}}}
 
-	got, err := Merge(base, nil, nil)
+	got, err := Merge([]Layer{{Root: "/dotfiles", File: base}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -158,9 +169,12 @@ func TestMerge_EnabledTrueInProfileOverridesFalseInBase(t *testing.T) {
 	disabled := false
 	enabled := true
 	base := File{Tools: map[string]Tool{"git-work": {Enabled: &disabled}}}
-	profile := &File{Tools: map[string]Tool{"git-work": {Enabled: &enabled}}}
+	profile := File{Tools: map[string]Tool{"git-work": {Enabled: &enabled}}}
 
-	got, err := Merge(base, profile, nil)
+	got, err := Merge([]Layer{
+		{Root: "/dotfiles", File: base},
+		{Root: "/dotfiles", File: profile},
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,11 +188,14 @@ func TestMerge_EnabledUnsetInLaterLayerKeepsEarlierValue(t *testing.T) {
 	base := File{Tools: map[string]Tool{
 		"git-work": {Enabled: &disabled, Links: map[string]string{"home:.a": "a"}},
 	}}
-	profile := &File{Tools: map[string]Tool{
+	profile := File{Tools: map[string]Tool{
 		"git-work": {Links: map[string]string{"home:.b": "b"}},
 	}}
 
-	got, err := Merge(base, profile, nil)
+	got, err := Merge([]Layer{
+		{Root: "/dotfiles", File: base},
+		{Root: "/dotfiles", File: profile},
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -190,5 +207,86 @@ func TestMerge_EnabledUnsetInLaterLayerKeepsEarlierValue(t *testing.T) {
 	}
 	if _, ok := got.Tools["git-work"].Links["home:.a"]; ok {
 		t.Fatalf("expected base's links to be replaced wholesale, not merged per key, got %+v", got.Tools["git-work"].Links)
+	}
+}
+
+func TestMerge_ExternalLayerRootAppliesToItsLinksTemplatesAndHooks(t *testing.T) {
+	base := File{}
+	external := File{Tools: map[string]Tool{
+		"zsh-work": {
+			Links:     map[string]string{"home:.zshrc.d/work.zsh": "zsh/work.zsh"},
+			Templates: map[string]string{"home:.zshrc.d/work.local": "zsh/work.local.tmpl"},
+			Once:      "echo work-once",
+		},
+	}}
+
+	got, err := Merge([]Layer{
+		{Root: "/dotfiles", File: base},
+		{Root: "/work-root", File: external},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.LinksRoot["zsh-work"] != "/work-root" {
+		t.Fatalf("expected LinksRoot %q, got %q", "/work-root", got.LinksRoot["zsh-work"])
+	}
+	if got.TemplatesRoot["zsh-work"] != "/work-root" {
+		t.Fatalf("expected TemplatesRoot %q, got %q", "/work-root", got.TemplatesRoot["zsh-work"])
+	}
+	if got.HookRoot["zsh-work"] != "/work-root" {
+		t.Fatalf("expected HookRoot %q, got %q", "/work-root", got.HookRoot["zsh-work"])
+	}
+}
+
+func TestMerge_LaterLayerTouchingOnlyEnabledDoesNotMoveOtherRoots(t *testing.T) {
+	external := File{Tools: map[string]Tool{
+		"zsh-work": {
+			Links: map[string]string{"home:.zshrc.d/work.zsh": "zsh/work.zsh"},
+			Once:  "echo work-once",
+		},
+	}}
+	disabled := false
+	local := File{Tools: map[string]Tool{
+		"zsh-work": {Enabled: &disabled},
+	}}
+
+	got, err := Merge([]Layer{
+		{Root: "/work-root", File: external},
+		{Root: "/dotfiles", File: local},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Enabled["zsh-work"] {
+		t.Fatalf("expected local's enabled=false to win, got %+v", got.Enabled)
+	}
+	if got.LinksRoot["zsh-work"] != "/work-root" {
+		t.Fatalf("expected LinksRoot to stay at the external root even though local touched this tool, got %q", got.LinksRoot["zsh-work"])
+	}
+	if got.HookRoot["zsh-work"] != "/work-root" {
+		t.Fatalf("expected HookRoot to stay at the external root even though local touched this tool, got %q", got.HookRoot["zsh-work"])
+	}
+}
+
+func TestMerge_SameToolNameAcrossLayersLastLayerWinsWholesale(t *testing.T) {
+	base := File{Tools: map[string]Tool{
+		"zsh": {Links: map[string]string{"home:.zshrc": "zsh/.zshrc"}},
+	}}
+	external := File{Tools: map[string]Tool{
+		"zsh": {Links: map[string]string{"home:.zshrc": "zsh/.zshrc.work"}},
+	}}
+
+	got, err := Merge([]Layer{
+		{Root: "/dotfiles", File: base},
+		{Root: "/work-root", File: external},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Tools["zsh"].Links["home:.zshrc"] != "zsh/.zshrc.work" {
+		t.Fatalf("expected the external layer's links to win, got %+v", got.Tools["zsh"].Links)
+	}
+	if got.LinksRoot["zsh"] != "/work-root" {
+		t.Fatalf("expected LinksRoot to follow the winning layer, got %q", got.LinksRoot["zsh"])
 	}
 }
