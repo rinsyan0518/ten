@@ -89,3 +89,64 @@ func TestDesired_ErrorsOnUnresolvableKey(t *testing.T) {
 		t.Fatalf("expected error for unresolvable key")
 	}
 }
+
+func TestDesired_UsesLinksRootAndTemplatesRootWhenSet(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"zsh-work": {
+				Links:     map[string]string{"home:.zshrc.d/work.zsh": "zsh/work.zsh"},
+				Templates: map[string]string{"home:.zshrc.d/work.local": "zsh/work.local.tmpl"},
+			},
+		},
+		LinksRoot:     map[string]string{"zsh-work": "/work-root"},
+		TemplatesRoot: map[string]string{"zsh-work": "/work-root"},
+	}
+
+	got, err := plan.Desired(merged, []string{"zsh-work"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []plan.Target{
+		{Tool: "zsh-work", Kind: "symlink", Target: "/home/taro/.zshrc.d/work.zsh", Source: "/work-root/zsh/work.zsh"},
+		{Tool: "zsh-work", Kind: "template", Target: "/home/taro/.zshrc.d/work.local", Source: "/work-root/zsh/work.local.tmpl"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestDesired_FallsBackToDotfilesRootWhenLinksRootUnset(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git": {Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}},
+		},
+	}
+
+	got, err := plan.Desired(merged, []string{"git"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []plan.Target{{Tool: "git", Kind: "symlink", Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestDesired_ErrorsWhenTwoToolsFromDifferentRootsClaimTheSameTarget(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"zsh":      {Links: map[string]string{"home:.zshrc": "zsh/.zshrc"}},
+			"zsh-work": {Links: map[string]string{"home:.zshrc": "zsh/.zshrc.work"}},
+		},
+		LinksRoot: map[string]string{"zsh-work": "/work-root"},
+	}
+
+	_, err := plan.Desired(merged, []string{"zsh", "zsh-work"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
+	if err == nil {
+		t.Fatalf("expected error for a target claimed by tools from two different roots")
+	}
+}

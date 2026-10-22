@@ -36,4 +36,14 @@ type Merged struct {
 	Vars         map[string]string
 	Tools        map[string]Tool
 	Enabled      map[string]bool
+	// LinksRoot, TemplatesRoot, and HookRoot are tool name -> the root
+	// that tool's links sources, templates sources, and before/once/
+	// after working directory resolve against, respectively. Each is
+	// set independently by whichever layer most recently set that
+	// field group for the tool (see Merge); a tool untouched by any
+	// field in a group simply has no entry, and callers fall back to
+	// DotfilesRoot.
+	LinksRoot     map[string]string
+	TemplatesRoot map[string]string
+	HookRoot      map[string]string
 }

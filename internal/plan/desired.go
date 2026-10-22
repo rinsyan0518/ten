@@ -51,7 +51,11 @@ func Desired(merged config.Merged, order []string, env pathresolve.Env) ([]Targe
 			if err != nil {
 				return nil, fmt.Errorf("tool %s: %w", name, err)
 			}
-			t := Target{Tool: name, Kind: "symlink", Target: target, Source: filepath.Join(merged.DotfilesRoot, tool.Links[key])}
+			root := merged.LinksRoot[name]
+			if root == "" {
+				root = merged.DotfilesRoot
+			}
+			t := Target{Tool: name, Kind: "symlink", Target: target, Source: filepath.Join(root, tool.Links[key])}
 			if err := claim(t); err != nil {
 				return nil, err
 			}
@@ -68,7 +72,11 @@ func Desired(merged config.Merged, order []string, env pathresolve.Env) ([]Targe
 			if err != nil {
 				return nil, fmt.Errorf("tool %s: %w", name, err)
 			}
-			t := Target{Tool: name, Kind: "template", Target: target, Source: filepath.Join(merged.DotfilesRoot, tool.Templates[key])}
+			root := merged.TemplatesRoot[name]
+			if root == "" {
+				root = merged.DotfilesRoot
+			}
+			t := Target{Tool: name, Kind: "template", Target: target, Source: filepath.Join(root, tool.Templates[key])}
 			if err := claim(t); err != nil {
 				return nil, err
 			}
