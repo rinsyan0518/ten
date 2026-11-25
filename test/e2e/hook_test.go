@@ -290,3 +290,45 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected destroy to remove the adopted symlink")
 	}
 }
+
+// A link put in place on a run that then fails at a later step of the
+// same tool — before its once hook ran — must still get once, even if the
+// failing entry is then removed from the config.
+func TestApply_StepFailureBeforeOnceStillFiresOnceLater(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links     = { "home:.gitconfig" = "git/.gitconfig" }
+templates = { "home:.gitconfig.local" = "git/local.tmpl" }
+once      = "echo ran >> `+home+`/once-log"
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/.gitconfig", "base\n")
+	// References an undefined var, so rendering fails after the link.
+	sb.WriteFile(t, home+"/dotfiles/git/local.tmpl", "email={{ .Vars.missing }}\n")
+
+	if out, code := sb.Run(t, home, "apply"); code == 0 {
+		t.Fatalf("expected the template failure to fail apply, got exit 0: %s", out)
+	}
+	if _, _, ok := sb.Lstat(t, home+"/once-log"); ok {
+		t.Fatalf("once must not run on the failed run")
+	}
+
+	// The user gives up on the template instead of fixing it.
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+links = { "home:.gitconfig" = "git/.gitconfig" }
+once  = "echo ran >> `+home+`/once-log"
+`)
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("third apply failed (exit %d): %s", code, out)
+	}
+	if got := strings.Count(sb.ReadFile(t, home+"/once-log"), "ran"); got != 1 {
+		t.Fatalf("expected once to fire exactly once after the failed run, ran %d times", got)
+	}
+}
