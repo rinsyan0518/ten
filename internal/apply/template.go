@@ -54,6 +54,16 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 	}
 	isSymlink := exists && info.Mode()&os.ModeSymlink != 0
 
+	// Template output typically carries machine-local values from vars —
+	// often secrets — so a brand-new file is owner-only. A regular file
+	// being replaced or updated keeps its own permission bits, so ten
+	// never loosens (or tightens) a mode the user chose, e.g. a 0600
+	// ~/.netrc stays 0600.
+	mode := os.FileMode(0o600)
+	if exists && info.Mode().IsRegular() {
+		mode = info.Mode().Perm()
+	}
+
 	var backupPath string
 	switch {
 	case backup && exists:
@@ -79,16 +89,40 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: mkdir for %s: %w", target, err)
 	}
-	// Never write through a symlink: os.WriteFile follows it and would
-	// corrupt whatever it points at (typically a file in the user's
-	// dotfiles repo). Belt and braces in case state and disk disagree.
-	if info, err := os.Lstat(target); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(target); err != nil {
-			return TemplateResult{}, fmt.Errorf("apply: remove symlink at template target %s: %w", target, err)
-		}
-	}
-	if err := os.WriteFile(target, content, 0o644); err != nil {
+	if err := writeFileAtomic(target, content, mode); err != nil {
 		return TemplateResult{}, fmt.Errorf("apply: write template output %s: %w", target, err)
 	}
 	return TemplateResult{Target: target, Source: source, BackupPath: backupPath, ContentHash: contentHash}, nil
+}
+
+// writeFileAtomic writes content to a temporary sibling of target with the
+// given mode and renames it into place. A crash mid-write therefore never
+// leaves a truncated config file behind, and because rename(2) replaces
+// the directory entry itself, a symlink sitting at target is replaced
+// rather than written through — so a stale symlink can never make ten
+// corrupt whatever it points at (typically a file in the dotfiles repo).
+func writeFileAtomic(target string, content []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".ten-tmp-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// No-ops on success (the file has been renamed away by then); on
+		// any failure they discard the partial temp file.
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+	if _, err := tmp.Write(content); err != nil {
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), target)
 }

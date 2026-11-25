@@ -30,6 +30,8 @@ Three safety checks fail an apply up front:
 - **Duplicate targets are an error.** Two entries resolving to the same target path — from different tools, or from one tool's `links` and `templates` — are rejected, naming both claimants.
 - **Nested targets are an error.** A target may not live under another managed target (e.g. `xdg:nvim` linked as a directory plus a template at `xdg:nvim/local.lua`): once the outer target is a symlink into your repo, the inner path would resolve inside the repo itself.
 
+Template output is owner-only by default: a newly created template output file gets mode `0600`, since templates usually carry machine-local values (often secrets) from `vars`. When a template replaces or updates an existing regular file, that file's mode is kept. Output is written atomically (temporary file + rename).
+
 ## Template data
 
 Templates are rendered with Go's `text/template`. They can reference two kinds of values:
