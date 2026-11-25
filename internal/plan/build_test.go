@@ -273,6 +273,20 @@ func TestBuild_PruneActions(t *testing.T) {
 			want:    plan.ActionRemove,
 		},
 		{
+			name:       "legacy template record whose target is now a directory is skipped",
+			res:        state.Resource{Tool: "old", Type: "template", Source: source},
+			entries:    map[string]plan.Entry{target: {Exists: true, IsDir: true}},
+			want:       plan.ActionSkip,
+			wantReason: "no longer a regular file",
+		},
+		{
+			name:       "record of an unknown resource type is skipped",
+			res:        state.Resource{Tool: "old", Type: "bogus", Source: source},
+			entries:    map[string]plan.Entry{target: {Exists: true, IsDir: true}},
+			want:       plan.ActionSkip,
+			wantReason: "unknown resource type",
+		},
+		{
 			name:    "owned symlink with no backup is removed",
 			res:     state.Resource{Tool: "old", Type: "symlink", Source: source},
 			entries: map[string]plan.Entry{target: {Exists: true, IsSymlink: true, LinkDest: source}},

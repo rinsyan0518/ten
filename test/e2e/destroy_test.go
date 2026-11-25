@@ -407,3 +407,39 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected the emptied backup root to be removed, found:\n%s", out)
 	}
 }
+
+func TestDestroy_SkipsRecordOfUnknownTypeInsteadOfDeletingIt(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/important/keep.txt", "precious\n")
+	sb.WriteFile(t, home+"/.local/state/ten/ten.state.json", `{
+  "version": 1,
+  "dotfiles_root": "`+home+`/dotfiles",
+  "last_applied": "0001-01-01T00:00:00Z",
+  "managed_resources": {
+    "`+home+`/important": {"tool": "x", "type": "bogus", "source": "/nowhere"}
+  }
+}
+`)
+
+	out, code := sb.Run(t, home, "destroy", "--dry-run")
+	if code != 0 {
+		t.Fatalf("destroy --dry-run failed (exit %d): %s", code, out)
+	}
+	if !strings.Contains(out, "unknown resource type") {
+		t.Fatalf("expected the dry-run to predict a skip, got: %s", out)
+	}
+
+	out, code = sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	if !strings.Contains(out, "unknown resource type") {
+		t.Fatalf("expected a skip warning, got: %s", out)
+	}
+	if got := sb.ReadFile(t, home+"/important/keep.txt"); got != "precious\n" {
+		t.Fatalf("the directory named by an unknown-type record must survive, got %q", got)
+	}
+}

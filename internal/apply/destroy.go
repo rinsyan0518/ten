@@ -124,7 +124,8 @@ func pruneEmptyDirs(dir, root string) {
 // like the resource ten recorded, or a human-readable reason if it does
 // not. A symlink is verified by its destination; a template by the hash
 // of the content ten last wrote (records from before content hashing
-// carry no hash and pass unverified, as they always did).
+// carry no hash and are only checked to still be a regular file). A
+// resource type this build doesn't know is never verified as owned.
 func verifyOwned(req UnlinkRequest, info os.FileInfo) string {
 	switch req.Type {
 	case "symlink":
@@ -139,11 +140,14 @@ func verifyOwned(req UnlinkRequest, info os.FileInfo) string {
 			return fmt.Sprintf("symlink now points at %s, not %s", dest, req.Source)
 		}
 	case "template":
-		if req.ContentHash == "" {
-			return ""
-		}
+		// Even a pre-hashing record must still name a regular file: ten
+		// only ever writes regular files, and anything else (a directory
+		// above all) would otherwise be removed recursively, unverified.
 		if !info.Mode().IsRegular() {
 			return "no longer a regular file written by ten"
+		}
+		if req.ContentHash == "" {
+			return ""
 		}
 		content, err := os.ReadFile(req.Target)
 		if err != nil {
@@ -152,6 +156,11 @@ func verifyOwned(req UnlinkRequest, info os.FileInfo) string {
 		if state.HashContent(content) != req.ContentHash {
 			return "content changed since ten wrote it"
 		}
+	default:
+		// A type this build doesn't know (a hand-edited or corrupted
+		// state file) gives nothing to verify ownership against; refuse
+		// rather than RemoveAll whatever path the record names.
+		return fmt.Sprintf("unknown resource type %q in state", req.Type)
 	}
 	return ""
 }

@@ -21,7 +21,7 @@ func (osInspector) Inspect(path string) (plan.Entry, error) {
 	if err != nil {
 		return plan.Entry{}, fmt.Errorf("apply: lstat %s: %w", path, err)
 	}
-	entry := plan.Entry{Exists: true}
+	entry := plan.Entry{Exists: true, IsDir: info.IsDir()}
 	if info.Mode()&os.ModeSymlink != 0 {
 		entry.IsSymlink = true
 		dest, err := os.Readlink(path)
