@@ -89,3 +89,36 @@ func TestDesired_ErrorsOnUnresolvableKey(t *testing.T) {
 		t.Fatalf("expected error for unresolvable key")
 	}
 }
+
+func TestDesired_ErrorsWhenATargetIsNestedInsideAnotherTarget(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"nvim":       {Links: map[string]string{"xdg:nvim": "nvim"}},
+			"nvim-local": {Templates: map[string]string{"xdg:nvim/lua/local.lua": "nvim/local.lua.tmpl"}},
+		},
+	}
+
+	_, err := plan.Desired(merged, []string{"nvim", "nvim-local"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"})
+	if err == nil {
+		t.Fatalf("expected error for a target nested inside another target, got nil")
+	}
+	for _, want := range []string{"/home/taro/.config/nvim/lua/local.lua", "/home/taro/.config/nvim", "nested"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error should mention %q, got: %v", want, err)
+		}
+	}
+}
+
+func TestDesired_SiblingTargetsWithSharedNamePrefixAreNotNested(t *testing.T) {
+	merged := config.Merged{
+		DotfilesRoot: "/dotfiles",
+		Tools: map[string]config.Tool{
+			"git": {Links: map[string]string{"home:.git": "git/dir", "home:.gitconfig": "git/.gitconfig"}},
+		},
+	}
+
+	if _, err := plan.Desired(merged, []string{"git"}, pathresolve.Env{Home: "/home/taro", XDGConfigHome: "/home/taro/.config"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

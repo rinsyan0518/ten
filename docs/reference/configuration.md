@@ -24,10 +24,11 @@ after  = "echo after"                                                 # shell co
 
 How `depends_on` orders tools and when each hook runs is described in [How apply works](../concepts/apply.md).
 
-Two safety checks fail an apply up front:
+Three safety checks fail an apply up front:
 
 - **Undefined template variables are an error.** A template referencing a `.Vars` key no layer defines fails instead of silently writing `<no value>` into the target. This includes `{{ if .Vars.optional }}` on an undeclared key — declare the key (even as an empty string) in some layer to branch on it.
 - **Duplicate targets are an error.** Two entries resolving to the same target path — from different tools, or from one tool's `links` and `templates` — are rejected, naming both claimants.
+- **Nested targets are an error.** A target may not live under another managed target (e.g. `xdg:nvim` linked as a directory plus a template at `xdg:nvim/local.lua`): once the outer target is a symlink into your repo, the inner path would resolve inside the repo itself.
 
 ## Template data
 

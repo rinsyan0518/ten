@@ -675,3 +675,33 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("state file must be left untouched, got: %s", got)
 	}
 }
+
+func TestApply_RejectsTargetNestedInsideAnotherTargetWithoutTouchingTheRepo(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.nvim]
+links = { "xdg:nvim" = "nvim" }
+
+[tools.nvim-local]
+templates = { "xdg:nvim/local.lua" = "local.lua.tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/nvim/local.lua", "REPO FILE\n")
+	sb.WriteFile(t, home+"/dotfiles/local.lua.tmpl", "rendered\n")
+
+	out, code := sb.Run(t, home, "apply")
+	if code == 0 {
+		t.Fatalf("expected apply to reject a nested target, got exit 0: %s", out)
+	}
+	if !strings.Contains(out, "nested") {
+		t.Fatalf("expected the error to explain the nesting, got: %s", out)
+	}
+	if got := sb.ReadFile(t, home+"/dotfiles/nvim/local.lua"); got != "REPO FILE\n" {
+		t.Fatalf("the repo file must be untouched, got %q", got)
+	}
+	if _, _, ok := sb.Lstat(t, home+"/.config/nvim"); ok {
+		t.Fatalf("nothing may be applied when the plan is rejected")
+	}
+}
