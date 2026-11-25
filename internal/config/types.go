@@ -13,7 +13,8 @@ type Tool struct {
 	// tool's desired targets absent from state.State.ManagedResources at
 	// the start of the run. It never fires again once a target is
 	// tracked, and never fires for a tool with no links/templates. A
-	// failed once leaves those targets untracked so it re-arms next run.
+	// failed once keeps those targets tracked but marks them
+	// state.Resource.OncePending, so it re-arms next run.
 	Once  string `toml:"once"`
 	After string `toml:"after"`
 }

@@ -23,6 +23,12 @@ type Resource struct {
 	// written before content hashing existed; such templates are removed
 	// unverified, as they always were.
 	ContentHash string `json:"content_hash,omitempty"`
+	// OncePending marks a resource ten put in place on a run whose once
+	// hook then failed. The resource stays tracked — so its backup_path
+	// is never forgotten and destroy/prune still manage it — but the
+	// owning tool's once hook is re-armed on the next apply, exactly as
+	// if the target were still untracked.
+	OncePending bool `json:"once_pending,omitempty"`
 }
 
 // HashContent returns the hash used in Resource.ContentHash for the

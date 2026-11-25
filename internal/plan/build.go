@@ -159,7 +159,7 @@ func Build(p BuildParams) (Plan, error) {
 
 		newlyManaged := false
 		for _, d := range byTool[name] {
-			if _, tracked := p.Current.ManagedResources[d.Target]; !tracked {
+			if res, tracked := p.Current.ManagedResources[d.Target]; !tracked || res.OncePending {
 				newlyManaged = true
 			}
 			switch d.Kind {

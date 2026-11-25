@@ -124,6 +124,13 @@ func Execute(p ExecParams) (Result, state.State, error) {
 
 		for _, step := range tp.Links {
 			if step.Action == plan.ActionNoop {
+				// Record the link even though nothing was written: a correct
+				// symlink can be on disk without a state record (a run whose
+				// once hook failed, or a link the user created by hand), and
+				// leaving it unrecorded would keep it out of prune/destroy
+				// and re-arm once on every later apply.
+				prev := p.Current.ManagedResources[step.Target]
+				newState.ManagedResources[step.Target] = state.Resource{Tool: tp.Tool, Type: "symlink", Source: step.Source, BackupPath: prev.BackupPath}
 				outcome.Links = append(outcome.Links, LinkResult{Target: step.Target, Source: step.Source, Skipped: true})
 				continue
 			}
@@ -163,21 +170,26 @@ func Execute(p ExecParams) (Result, state.State, error) {
 		}
 
 		if err := p.Executor.RunHook(tp.Once, p.HookDir, out); err != nil {
-			// Roll back tracking of targets this run newly managed for
-			// this tool (the resources themselves stay on disk). Recording
-			// them would make the next run consider them already tracked
-			// and never re-fire once — the failed setup command would be
-			// silently lost forever. Untracked, the next apply re-links
-			// them idempotently and arms once again.
-			for _, step := range tp.Links {
-				if _, tracked := p.Current.ManagedResources[step.Target]; !tracked {
-					delete(newState.ManagedResources, step.Target)
+			// Mark the targets this run newly managed for this tool as
+			// once-pending instead of dropping them from state. Recording
+			// them as fully managed would make the next run never re-fire
+			// once (the failed setup command would be silently lost);
+			// dropping them would forget any backup just taken of the
+			// user's original file, so destroy could no longer restore it.
+			markPending := func(target string) {
+				if prev, tracked := p.Current.ManagedResources[target]; tracked && !prev.OncePending {
+					return
+				}
+				if res, ok := newState.ManagedResources[target]; ok {
+					res.OncePending = true
+					newState.ManagedResources[target] = res
 				}
 			}
+			for _, step := range tp.Links {
+				markPending(step.Target)
+			}
 			for _, step := range tp.Templates {
-				if _, tracked := p.Current.ManagedResources[step.Target]; !tracked {
-					delete(newState.ManagedResources, step.Target)
-				}
+				markPending(step.Target)
 			}
 			return fail(err)
 		}

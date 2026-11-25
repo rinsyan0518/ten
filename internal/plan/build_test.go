@@ -194,6 +194,14 @@ func TestBuild_OnceEligibility(t *testing.T) {
 			want:    "",
 		},
 		{
+			name: "once-pending tracked target re-arms once",
+			tool: config.Tool{Links: map[string]string{"home:.gitconfig": "git/.gitconfig"}, Once: "echo first"},
+			current: state.State{ManagedResources: map[string]state.Resource{
+				"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig", OncePending: true},
+			}},
+			want: "echo first",
+		},
+		{
 			name:    "hooks-only tool never arms once",
 			tool:    config.Tool{Before: "echo b", Once: "echo first", After: "echo a"},
 			current: state.State{ManagedResources: map[string]state.Resource{}},
