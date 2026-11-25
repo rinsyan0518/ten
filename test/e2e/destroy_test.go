@@ -443,3 +443,35 @@ func TestDestroy_SkipsRecordOfUnknownTypeInsteadOfDeletingIt(t *testing.T) {
 		t.Fatalf("the directory named by an unknown-type record must survive, got %q", got)
 	}
 }
+
+// A template target the user replaced with a FIFO must be skipped by
+// both the dry-run plan and the real run — and must not hang either one
+// by trying to read the FIFO.
+func TestDestroy_SkipsTemplateTargetReplacedByAFIFOWithoutHanging(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+templates = { "home:.gitconfig.local" = "git/local.tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/local.tmpl", "rendered\n")
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed (exit %d): %s", code, out)
+	}
+	sb.Exec(t, "rm "+home+"/.gitconfig.local && mkfifo "+home+"/.gitconfig.local")
+
+	for _, args := range []string{"destroy --dry-run", "destroy"} {
+		out, _, code := sb.Exec(t, "HOME="+home+" timeout 20 ten "+args)
+		if code != 0 {
+			t.Fatalf("ten %s failed or hung (exit %d): %s", args, code, out)
+		}
+		if !strings.Contains(out, "no longer a regular file") {
+			t.Fatalf("expected ten %s to skip the FIFO, got: %s", args, out)
+		}
+	}
+	if _, _, code := sb.Exec(t, "test -p "+home+"/.gitconfig.local"); code != 0 {
+		t.Fatalf("the FIFO must be left in place")
+	}
+}

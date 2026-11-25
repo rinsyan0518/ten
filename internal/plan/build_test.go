@@ -246,14 +246,14 @@ func TestBuild_PruneActions(t *testing.T) {
 		{
 			name:    "owned template with matching content hash is removed",
 			res:     state.Resource{Tool: "old", Type: "template", Source: source, ContentHash: state.HashContent([]byte("rendered"))},
-			entries: map[string]plan.Entry{target: {Exists: true}},
+			entries: map[string]plan.Entry{target: {Exists: true, IsRegular: true}},
 			files:   map[string][]byte{target: []byte("rendered")},
 			want:    plan.ActionRemove,
 		},
 		{
 			name:       "template whose content changed since ten wrote it is skipped",
 			res:        state.Resource{Tool: "old", Type: "template", Source: source, ContentHash: state.HashContent([]byte("rendered"))},
-			entries:    map[string]plan.Entry{target: {Exists: true}},
+			entries:    map[string]plan.Entry{target: {Exists: true, IsRegular: true}},
 			files:      map[string][]byte{target: []byte("edited by the user")},
 			want:       plan.ActionSkip,
 			wantReason: "content changed",
@@ -268,21 +268,31 @@ func TestBuild_PruneActions(t *testing.T) {
 		{
 			name:    "legacy template record without a hash is removed unverified",
 			res:     state.Resource{Tool: "old", Type: "template", Source: source},
-			entries: map[string]plan.Entry{target: {Exists: true}},
+			entries: map[string]plan.Entry{target: {Exists: true, IsRegular: true}},
 			files:   map[string][]byte{target: []byte("anything")},
 			want:    plan.ActionRemove,
 		},
 		{
 			name:       "legacy template record whose target is now a directory is skipped",
 			res:        state.Resource{Tool: "old", Type: "template", Source: source},
-			entries:    map[string]plan.Entry{target: {Exists: true, IsDir: true}},
+			entries:    map[string]plan.Entry{target: {Exists: true}},
+			want:       plan.ActionSkip,
+			wantReason: "no longer a regular file",
+		},
+		{
+			// A FIFO is neither a symlink nor a directory; reading it would
+			// block forever, so it must be skipped before ReadFile. No
+			// files entry: the fake errors if ReadFile is reached.
+			name:       "hashed template record whose target is now a FIFO is skipped unread",
+			res:        state.Resource{Tool: "old", Type: "template", Source: source, ContentHash: state.HashContent([]byte("rendered"))},
+			entries:    map[string]plan.Entry{target: {Exists: true}},
 			want:       plan.ActionSkip,
 			wantReason: "no longer a regular file",
 		},
 		{
 			name:       "record of an unknown resource type is skipped",
 			res:        state.Resource{Tool: "old", Type: "bogus", Source: source},
-			entries:    map[string]plan.Entry{target: {Exists: true, IsDir: true}},
+			entries:    map[string]plan.Entry{target: {Exists: true}},
 			want:       plan.ActionSkip,
 			wantReason: "unknown resource type",
 		},

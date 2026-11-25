@@ -38,7 +38,7 @@ const (
 type Entry struct {
 	Exists    bool
 	IsSymlink bool
-	IsDir     bool   // a real directory (never set together with IsSymlink)
+	IsRegular bool   // a regular file (not a symlink, directory, FIFO, socket, device)
 	LinkDest  string // symlink destination; meaningful only when IsSymlink
 }
 
@@ -247,7 +247,10 @@ func planPrune(target string, res state.Resource, ins Inspector) (PruneStep, err
 		step.SkipReason = fmt.Sprintf("unknown resource type %q in state", res.Type)
 		return step, nil
 	}
-	if entry.Exists && res.Type == "template" && (entry.IsSymlink || entry.IsDir) {
+	// Anything but a regular file is skipped before its content is read:
+	// ten only ever writes regular files, and reading a FIFO would block
+	// the plan forever.
+	if entry.Exists && res.Type == "template" && !entry.IsRegular {
 		step.Action = ActionSkip
 		step.SkipReason = "no longer a regular file written by ten"
 		return step, nil
