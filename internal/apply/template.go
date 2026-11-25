@@ -52,16 +52,15 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 	if lstatErr != nil && !os.IsNotExist(lstatErr) {
 		return TemplateResult{}, fmt.Errorf("apply: lstat %s: %w", target, lstatErr)
 	}
-	isSymlink := exists && info.Mode()&os.ModeSymlink != 0
-
 	// Template output typically carries machine-local values from vars —
-	// often secrets — so a brand-new file is owner-only. A regular file
-	// being replaced or updated keeps its own permission bits, so ten
-	// never loosens (or tightens) a mode the user chose, e.g. a 0600
-	// ~/.netrc stays 0600.
+	// often secrets — so it is always owner-only: group/other permission
+	// bits are never carried over. A brand-new file gets 0600; a regular
+	// file being replaced or updated keeps only its owner bits (so an
+	// owner-executable script stays executable), which also tightens a
+	// world-readable file, including output an older ten wrote as 0644.
 	mode := os.FileMode(0o600)
 	if exists && info.Mode().IsRegular() {
-		mode = info.Mode().Perm()
+		mode = info.Mode().Perm() &^ 0o077
 	}
 
 	var backupPath string
@@ -74,7 +73,7 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 		if err := os.Rename(target, backupPath); err != nil {
 			return TemplateResult{}, fmt.Errorf("apply: backup %s: %w", target, err)
 		}
-	case !backup && exists && !isSymlink:
+	case !backup && exists && info.Mode().IsRegular():
 		// Overwriting ten's own previous output: compare first so an
 		// unchanged template is reported up to date instead of rewritten.
 		current, err := os.ReadFile(target)
@@ -82,6 +81,14 @@ func RenderTemplate(target, source string, vars map[string]string, ten SystemInf
 			return TemplateResult{}, fmt.Errorf("apply: read %s: %w", target, err)
 		}
 		if bytes.Equal(current, content) {
+			// Up to date content still gets its mode tightened, or output
+			// written world-readable by an older ten would stay that way
+			// for as long as its content never changes.
+			if info.Mode().Perm() != mode {
+				if err := os.Chmod(target, mode); err != nil {
+					return TemplateResult{}, fmt.Errorf("apply: chmod %s: %w", target, err)
+				}
+			}
 			return TemplateResult{Target: target, Source: source, Skipped: true, ContentHash: contentHash}, nil
 		}
 	}

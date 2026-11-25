@@ -145,7 +145,7 @@ templates = { "home:.gitconfig.local" = "git/gitconfig.local.tmpl" }
 	}
 }
 
-func TestApply_TemplateOutputIsOwnerOnlyAndKeepsReplacedFileMode(t *testing.T) {
+func TestApply_TemplateOutputIsAlwaysOwnerOnly(t *testing.T) {
 	sb := tencli.NewSandbox(t)
 	home := sb.Home()
 
@@ -168,13 +168,23 @@ templates = { "home:.npmrc" = "npmrc.tmpl", "home:.netrc" = "netrc.tmpl" }
 	if mode, _, _ := sb.Exec(t, "stat -c %a "+home+"/.npmrc"); strings.TrimSpace(mode) != "600" {
 		t.Fatalf("new template output mode = %q, want 600", strings.TrimSpace(mode))
 	}
-	if mode, _, _ := sb.Exec(t, "stat -c %a "+home+"/.netrc"); strings.TrimSpace(mode) != "640" {
-		t.Fatalf("replaced template output mode = %q, want 640 (kept from the replaced file)", strings.TrimSpace(mode))
+	if mode, _, _ := sb.Exec(t, "stat -c %a "+home+"/.netrc"); strings.TrimSpace(mode) != "600" {
+		t.Fatalf("replaced template output mode = %q, want 600 (group/other bits of the replaced file dropped)", strings.TrimSpace(mode))
 	}
 	if got := sb.ReadFile(t, home+"/.netrc"); got != "password s3cret\n" {
 		t.Fatalf("unexpected rendered content %q", got)
 	}
 	if out, _, _ := sb.Exec(t, "ls -A "+home+" | grep ten-tmp"); strings.TrimSpace(out) != "" {
 		t.Fatalf("no temporary files may be left behind, found: %s", out)
+	}
+
+	// Output left world-readable (e.g. written by an older ten) is
+	// tightened on the next apply even though its content is unchanged.
+	sb.Exec(t, "chmod 644 "+home+"/.npmrc")
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("second apply failed (exit %d): %s", code, out)
+	}
+	if mode, _, _ := sb.Exec(t, "stat -c %a "+home+"/.npmrc"); strings.TrimSpace(mode) != "600" {
+		t.Fatalf("up-to-date template output mode = %q, want 600", strings.TrimSpace(mode))
 	}
 }
