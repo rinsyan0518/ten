@@ -151,3 +151,42 @@ func TestLink_SymlinkDifferingOnlyInPathSpellingIsUpToDate(t *testing.T) {
 		t.Fatalf("no backup should be taken for an equivalent symlink, got %q", result.BackupPath)
 	}
 }
+
+func TestUnlink_UnknownResourceTypeIsSkippedNotRemoved(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "important")
+	if err := os.MkdirAll(filepath.Join(target, "sub"), 0o755); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	result, err := apply.Unlink(apply.UnlinkRequest{Target: target, Type: "bogus"})
+	if err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if !result.Skipped {
+		t.Fatalf("expected an unknown resource type to be skipped, got %+v", result)
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "sub")); statErr != nil {
+		t.Fatalf("target must be left in place: %v", statErr)
+	}
+}
+
+func TestUnlink_LegacyTemplateThatIsNoLongerARegularFileIsSkipped(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "conf")
+	if err := os.MkdirAll(filepath.Join(target, "sub"), 0o755); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	// No ContentHash: a record written before content hashing existed.
+	result, err := apply.Unlink(apply.UnlinkRequest{Target: target, Type: "template", Source: "/dotfiles/tmpl"})
+	if err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if !result.Skipped {
+		t.Fatalf("expected a directory at a legacy template target to be skipped, got %+v", result)
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "sub")); statErr != nil {
+		t.Fatalf("target must be left in place: %v", statErr)
+	}
+}

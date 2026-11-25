@@ -173,3 +173,132 @@ func TestRenderTemplate_NeverWritesThroughASymlink(t *testing.T) {
 		t.Fatalf("target = %q", got)
 	}
 }
+
+func TestRenderTemplate_NewOutputIsOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	src := writeSource(t, dir, "token={{ .Vars.token }}\n")
+	target := filepath.Join(dir, ".npmrc")
+
+	if _, err := apply.RenderTemplate(target, src, map[string]string{"token": "s3cret"}, apply.SystemInfo{}, filepath.Join(dir, "backup"), false); err != nil {
+		t.Fatalf("RenderTemplate: %v", err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat target: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("new template output mode = %v, want 0600", got)
+	}
+}
+
+func TestRenderTemplate_ReplacingAFileKeepsOnlyItsOwnerBits(t *testing.T) {
+	tests := []struct{ mode, want os.FileMode }{
+		{0o600, 0o600},
+		{0o640, 0o600},
+		{0o644, 0o600},
+		{0o700, 0o700},
+		{0o755, 0o700},
+	}
+	for _, tt := range tests {
+		mode := tt.mode
+		t.Run(mode.String(), func(t *testing.T) {
+			dir := t.TempDir()
+			src := writeSource(t, dir, "machine x password {{ .Vars.pw }}\n")
+			target := filepath.Join(dir, ".netrc")
+			if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+				t.Fatalf("seed target: %v", err)
+			}
+			if err := os.Chmod(target, mode); err != nil {
+				t.Fatalf("chmod target: %v", err)
+			}
+
+			if _, err := apply.RenderTemplate(target, src, map[string]string{"pw": "s3cret"}, apply.SystemInfo{}, filepath.Join(dir, "backup"), true); err != nil {
+				t.Fatalf("RenderTemplate: %v", err)
+			}
+			info, err := os.Stat(target)
+			if err != nil {
+				t.Fatalf("stat target: %v", err)
+			}
+			if got := info.Mode().Perm(); got != tt.want {
+				t.Fatalf("mode after replace of a %v file = %v, want %v", mode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderTemplate_UpdateDropsGroupOtherBitsAndLeavesNoTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	src := writeSource(t, dir, "v={{ .Vars.v }}\n")
+	target := filepath.Join(dir, "out", "conf")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(target, []byte("v=old\n"), 0o640); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	if _, err := apply.RenderTemplate(target, src, map[string]string{"v": "new"}, apply.SystemInfo{}, filepath.Join(dir, "backup"), false); err != nil {
+		t.Fatalf("RenderTemplate: %v", err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "v=new\n" {
+		t.Fatalf("got %q", got)
+	}
+	info, _ := os.Stat(target)
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode after update of a 0640 file = %v, want 0600", got)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(target))
+	if len(entries) != 1 {
+		t.Fatalf("expected only the target in its directory, found %v", entries)
+	}
+}
+
+func TestRenderTemplate_StaleSymlinkAtTargetIsReplacedNotWrittenThrough(t *testing.T) {
+	dir := t.TempDir()
+	src := writeSource(t, dir, "rendered\n")
+	repoFile := filepath.Join(dir, "repo-file")
+	if err := os.WriteFile(repoFile, []byte("REPO\n"), 0o644); err != nil {
+		t.Fatalf("seed repo file: %v", err)
+	}
+	target := filepath.Join(dir, "target")
+	if err := os.Symlink(repoFile, target); err != nil {
+		t.Fatalf("seed symlink: %v", err)
+	}
+
+	if _, err := apply.RenderTemplate(target, src, nil, apply.SystemInfo{}, filepath.Join(dir, "backup"), false); err != nil {
+		t.Fatalf("RenderTemplate: %v", err)
+	}
+	if got, _ := os.ReadFile(repoFile); string(got) != "REPO\n" {
+		t.Fatalf("the symlink's destination must not be written through, got %q", got)
+	}
+	info, _ := os.Lstat(target)
+	if !info.Mode().IsRegular() {
+		t.Fatalf("expected target to become a regular file, mode %v", info.Mode())
+	}
+}
+
+func TestRenderTemplate_UpToDateOutputStillGetsItsModeTightened(t *testing.T) {
+	// Output an older ten wrote world-readable must not stay that way just
+	// because its content never changes again.
+	dir := t.TempDir()
+	src := writeSource(t, dir, "token={{ .Vars.token }}\n")
+	target := filepath.Join(dir, ".npmrc")
+	if err := os.WriteFile(target, []byte("token=s3cret\n"), 0o600); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+	if err := os.Chmod(target, 0o644); err != nil {
+		t.Fatalf("chmod target: %v", err)
+	}
+
+	result, err := apply.RenderTemplate(target, src, map[string]string{"token": "s3cret"}, apply.SystemInfo{}, filepath.Join(dir, "backup"), false)
+	if err != nil {
+		t.Fatalf("RenderTemplate: %v", err)
+	}
+	if !result.Skipped {
+		t.Fatalf("expected unchanged content to be reported up to date, got %+v", result)
+	}
+	info, _ := os.Stat(target)
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode of up-to-date output = %v, want 0600", got)
+	}
+}

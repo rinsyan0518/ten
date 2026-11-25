@@ -407,3 +407,71 @@ links = { "home:.gitconfig" = "git/.gitconfig" }
 		t.Fatalf("expected the emptied backup root to be removed, found:\n%s", out)
 	}
 }
+
+func TestDestroy_SkipsRecordOfUnknownTypeInsteadOfDeletingIt(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/important/keep.txt", "precious\n")
+	sb.WriteFile(t, home+"/.local/state/ten/ten.state.json", `{
+  "version": 1,
+  "dotfiles_root": "`+home+`/dotfiles",
+  "last_applied": "0001-01-01T00:00:00Z",
+  "managed_resources": {
+    "`+home+`/important": {"tool": "x", "type": "bogus", "source": "/nowhere"}
+  }
+}
+`)
+
+	out, code := sb.Run(t, home, "destroy", "--dry-run")
+	if code != 0 {
+		t.Fatalf("destroy --dry-run failed (exit %d): %s", code, out)
+	}
+	if !strings.Contains(out, "unknown resource type") {
+		t.Fatalf("expected the dry-run to predict a skip, got: %s", out)
+	}
+
+	out, code = sb.Run(t, home, "destroy")
+	if code != 0 {
+		t.Fatalf("destroy failed (exit %d): %s", code, out)
+	}
+	if !strings.Contains(out, "unknown resource type") {
+		t.Fatalf("expected a skip warning, got: %s", out)
+	}
+	if got := sb.ReadFile(t, home+"/important/keep.txt"); got != "precious\n" {
+		t.Fatalf("the directory named by an unknown-type record must survive, got %q", got)
+	}
+}
+
+// A template target the user replaced with a FIFO must be skipped by
+// both the dry-run plan and the real run — and must not hang either one
+// by trying to read the FIFO.
+func TestDestroy_SkipsTemplateTargetReplacedByAFIFOWithoutHanging(t *testing.T) {
+	sb := tencli.NewSandbox(t)
+	home := sb.Home()
+
+	sb.Init(t, home, home+"/dotfiles")
+	sb.WriteFile(t, home+"/dotfiles/ten.toml", `
+[tools.git]
+templates = { "home:.gitconfig.local" = "git/local.tmpl" }
+`)
+	sb.WriteFile(t, home+"/dotfiles/git/local.tmpl", "rendered\n")
+	if out, code := sb.Run(t, home, "apply"); code != 0 {
+		t.Fatalf("apply failed (exit %d): %s", code, out)
+	}
+	sb.Exec(t, "rm "+home+"/.gitconfig.local && mkfifo "+home+"/.gitconfig.local")
+
+	for _, args := range []string{"destroy --dry-run", "destroy"} {
+		out, _, code := sb.Exec(t, "HOME="+home+" timeout 20 ten "+args)
+		if code != 0 {
+			t.Fatalf("ten %s failed or hung (exit %d): %s", args, code, out)
+		}
+		if !strings.Contains(out, "no longer a regular file") {
+			t.Fatalf("expected ten %s to skip the FIFO, got: %s", args, out)
+		}
+	}
+	if _, _, code := sb.Exec(t, "test -p "+home+"/.gitconfig.local"); code != 0 {
+		t.Fatalf("the FIFO must be left in place")
+	}
+}

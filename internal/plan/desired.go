@@ -75,5 +75,18 @@ func Desired(merged config.Merged, order []string, env pathresolve.Env) ([]Targe
 			desired = append(desired, t)
 		}
 	}
+
+	// A target nested under another target is just as unworkable as a
+	// duplicate: once the outer one is a symlink into the dotfiles repo,
+	// the inner path resolves *inside the repo*, so backing it up or
+	// rendering over it would move or overwrite a repo file.
+	for _, t := range desired {
+		for dir := filepath.Dir(t.Target); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+			if outer, ok := claimed[dir]; ok {
+				return nil, fmt.Errorf("target %s (tool %s, %s %s) is nested inside target %s (tool %s, %s %s); a target may not live under another managed target",
+					t.Target, t.Tool, t.Kind, t.Source, outer.Target, outer.Tool, outer.Kind, outer.Source)
+			}
+		}
+	}
 	return desired, nil
 }

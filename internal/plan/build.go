@@ -38,6 +38,7 @@ const (
 type Entry struct {
 	Exists    bool
 	IsSymlink bool
+	IsRegular bool   // a regular file (not a symlink, directory, FIFO, socket, device)
 	LinkDest  string // symlink destination; meaningful only when IsSymlink
 }
 
@@ -159,7 +160,7 @@ func Build(p BuildParams) (Plan, error) {
 
 		newlyManaged := false
 		for _, d := range byTool[name] {
-			if _, tracked := p.Current.ManagedResources[d.Target]; !tracked {
+			if res, tracked := p.Current.ManagedResources[d.Target]; !tracked || res.OncePending {
 				newlyManaged = true
 			}
 			switch d.Kind {
@@ -236,9 +237,24 @@ func planPrune(target string, res state.Resource, ins Inspector) (PruneStep, err
 	// Verify the target is still the resource ten recorded before
 	// planning its removal: a symlink by its destination, a template by
 	// the hash of the content ten last wrote (records from before
-	// content hashing carry no hash and pass unverified, as they always
-	// did). A missing target skips verification — there is nothing left
-	// to protect.
+	// content hashing carry no hash and are only checked to still be a
+	// regular file). A record of a type this build doesn't know is never
+	// removed. A missing target skips verification — there is nothing
+	// left to protect. This mirrors apply.Unlink's verifyOwned, so a
+	// dry-run predicts exactly what a real run does.
+	if entry.Exists && res.Type != "symlink" && res.Type != "template" {
+		step.Action = ActionSkip
+		step.SkipReason = fmt.Sprintf("unknown resource type %q in state", res.Type)
+		return step, nil
+	}
+	// Anything but a regular file is skipped before its content is read:
+	// ten only ever writes regular files, and reading a FIFO would block
+	// the plan forever.
+	if entry.Exists && res.Type == "template" && !entry.IsRegular {
+		step.Action = ActionSkip
+		step.SkipReason = "no longer a regular file written by ten"
+		return step, nil
+	}
 	if entry.Exists && res.Type == "symlink" {
 		switch {
 		case !entry.IsSymlink:
@@ -252,11 +268,6 @@ func planPrune(target string, res state.Resource, ins Inspector) (PruneStep, err
 		}
 	}
 	if entry.Exists && res.Type == "template" && res.ContentHash != "" {
-		if entry.IsSymlink {
-			step.Action = ActionSkip
-			step.SkipReason = "no longer a regular file written by ten"
-			return step, nil
-		}
 		content, err := ins.ReadFile(target)
 		if err != nil {
 			return PruneStep{}, fmt.Errorf("read %s: %w", target, err)

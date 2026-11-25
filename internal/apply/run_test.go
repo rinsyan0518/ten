@@ -265,18 +265,21 @@ func TestExecute_RunsOnceHookWhenArmed(t *testing.T) {
 	}
 }
 
-func TestExecute_FailedOnceHookLeavesTargetsUntrackedSoOnceRefires(t *testing.T) {
+func TestExecute_FailedOnceHookMarksTargetsPendingAndKeepsBackup(t *testing.T) {
 	pl := plan.Plan{
 		Tools: []plan.ToolPlan{{
 			Tool: "git",
 			Links: []plan.LinkStep{
-				{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate},
+				{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionReplace},
 			},
 			Once: "exit 1",
 		}},
 	}
 	hookErr := errors.New("once failed")
 	fx := &fakeExecutor{
+		LinkFunc: func(target, source, backupDir string) (apply.LinkResult, error) {
+			return apply.LinkResult{Target: target, Source: source, BackupPath: "/b/1/home/taro/.gitconfig"}, nil
+		},
 		RunHookFunc: func(cmdStr, dir string, out io.Writer) error {
 			if cmdStr == "exit 1" {
 				return hookErr
@@ -291,11 +294,58 @@ func TestExecute_FailedOnceHookLeavesTargetsUntrackedSoOnceRefires(t *testing.T)
 	if err == nil || !errors.Is(err, hookErr) {
 		t.Fatalf("expected the once failure to propagate, got %v", err)
 	}
-	// If the newly-managed target were recorded despite the once failure,
-	// the next apply would see it as already tracked and never re-fire
-	// once — the setup command would be silently lost forever.
-	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; ok {
-		t.Fatalf("targets newly managed this run must stay untracked when their once hook fails")
+	// The target stays tracked so the backup of the user's original file
+	// is not forgotten, but is marked pending so the next plan re-arms once.
+	res, ok := newState.ManagedResources["/home/taro/.gitconfig"]
+	if !ok {
+		t.Fatalf("targets newly managed this run must stay tracked when their once hook fails")
+	}
+	if !res.OncePending {
+		t.Fatalf("expected the target to be marked once-pending, got %+v", res)
+	}
+	if res.BackupPath != "/b/1/home/taro/.gitconfig" {
+		t.Fatalf("expected the backup taken this run to stay recorded, got %+v", res)
+	}
+}
+
+func TestExecute_NoopLinkIsRecordedInStateAndClearsOncePending(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:  "git",
+			Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionNoop}},
+			Once:  "echo setup",
+		}},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.gitconfig": {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig", BackupPath: "/b/1/home/taro/.gitconfig", OncePending: true},
+	}}
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: &fakeExecutor{},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := state.Resource{Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig", BackupPath: "/b/1/home/taro/.gitconfig"}
+	if got := newState.ManagedResources["/home/taro/.gitconfig"]; got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestExecute_NoopLinkForUntrackedTargetGetsTracked(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:  "git",
+			Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionNoop}},
+		}},
+	}
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: &fakeExecutor{},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; !ok {
+		t.Fatalf("a correct but untracked symlink must be recorded in state")
 	}
 }
 
@@ -334,8 +384,11 @@ func TestExecute_FailedOnceHookKeepsPreviouslyTrackedTargets(t *testing.T) {
 	if _, ok := newState.ManagedResources["/home/taro/.gitconfig"]; !ok {
 		t.Fatalf("previously tracked targets must survive a once failure")
 	}
-	if _, ok := newState.ManagedResources["/home/taro/.gitignore"]; ok {
-		t.Fatalf("the newly managed target must be rolled back from tracking")
+	if newState.ManagedResources["/home/taro/.gitconfig"].OncePending {
+		t.Fatalf("a previously fully-tracked target must not be marked once-pending")
+	}
+	if !newState.ManagedResources["/home/taro/.gitignore"].OncePending {
+		t.Fatalf("the newly managed target must be marked once-pending")
 	}
 }
 
@@ -446,3 +499,139 @@ type testWriter struct{ buf []byte }
 func (w *testWriter) Write(p []byte) (int, error) { w.buf = append(w.buf, p...); return len(p), nil }
 func (w *testWriter) String() string              { return string(w.buf) }
 func (w *testWriter) contains(s string) bool      { return strings.Contains(w.String(), s) }
+
+func TestExecute_StepFailureBeforeArmedOnceMarksTargetsPending(t *testing.T) {
+	// The link is put in place, then a template of the same tool fails
+	// before the armed once hook gets to run: the link must not be left
+	// recorded as fully managed, or once would never fire for it.
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:      "git",
+			Links:     []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate}},
+			Templates: []plan.TemplateStep{{Target: "/home/taro/.gitconfig.local", Source: "/dotfiles/git/local.tmpl", Action: plan.ActionCreate}},
+			Once:      "echo setup",
+		}},
+	}
+	renderErr := errors.New("render failed")
+	fx := &fakeExecutor{
+		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error) {
+			return apply.TemplateResult{}, renderErr
+		},
+	}
+
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if !errors.Is(err, renderErr) {
+		t.Fatalf("expected the render failure to propagate, got %v", err)
+	}
+	if !newState.ManagedResources["/home/taro/.gitconfig"].OncePending {
+		t.Fatalf("expected the link to be marked once-pending, got %+v", newState.ManagedResources)
+	}
+	if _, ok := newState.ManagedResources["/home/taro/.gitconfig.local"]; ok {
+		t.Fatalf("the failed template must not be recorded")
+	}
+	for _, c := range fx.calls {
+		if c == "hook:echo setup" {
+			t.Fatalf("once must not run after an earlier step failed")
+		}
+	}
+}
+
+func TestExecute_StepFailureKeepsOncePendingOnRewrittenRecords(t *testing.T) {
+	// Both targets are pending from an earlier failed once. This run
+	// rewrites the link's record, then the template fails before once:
+	// the rewritten link record must stay pending.
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:      "git",
+			Links:     []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionNoop}},
+			Templates: []plan.TemplateStep{{Target: "/home/taro/.gitconfig.local", Source: "/dotfiles/git/local.tmpl", Action: plan.ActionUpdate}},
+			Once:      "echo setup",
+		}},
+	}
+	current := state.State{ManagedResources: map[string]state.Resource{
+		"/home/taro/.gitconfig":       {Tool: "git", Type: "symlink", Source: "/dotfiles/git/.gitconfig", BackupPath: "/b/1/home/taro/.gitconfig", OncePending: true},
+		"/home/taro/.gitconfig.local": {Tool: "git", Type: "template", Source: "/dotfiles/git/local.tmpl", OncePending: true},
+	}}
+	renderErr := errors.New("render failed")
+	fx := &fakeExecutor{
+		RenderTemplateFunc: func(target, source string, vars map[string]string, ten apply.SystemInfo, backupDir string, backup bool) (apply.TemplateResult, error) {
+			return apply.TemplateResult{}, renderErr
+		},
+	}
+
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: current, BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if !errors.Is(err, renderErr) {
+		t.Fatalf("expected the render failure to propagate, got %v", err)
+	}
+	for target, res := range newState.ManagedResources {
+		if !res.OncePending {
+			t.Fatalf("expected %s to stay once-pending, got %+v", target, res)
+		}
+	}
+	if got := newState.ManagedResources["/home/taro/.gitconfig"].BackupPath; got != "/b/1/home/taro/.gitconfig" {
+		t.Fatalf("backup path must survive, got %q", got)
+	}
+}
+
+func TestExecute_FailureWithoutArmedOnceDoesNotMarkPending(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool: "git",
+			Links: []plan.LinkStep{
+				{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate},
+				{Target: "/home/taro/.gitignore", Source: "/dotfiles/git/.gitignore", Action: plan.ActionCreate},
+			},
+		}},
+	}
+	linkErr := errors.New("link failed")
+	fx := &fakeExecutor{
+		LinkFunc: func(target, source, backupDir string) (apply.LinkResult, error) {
+			if target == "/home/taro/.gitignore" {
+				return apply.LinkResult{}, linkErr
+			}
+			return apply.LinkResult{Target: target, Source: source}, nil
+		},
+	}
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if !errors.Is(err, linkErr) {
+		t.Fatalf("expected the link failure to propagate, got %v", err)
+	}
+	if newState.ManagedResources["/home/taro/.gitconfig"].OncePending {
+		t.Fatalf("a tool without an armed once must not mark anything pending")
+	}
+}
+
+func TestExecute_AfterHookFailureDoesNotMarkPendingOnceOnceRan(t *testing.T) {
+	pl := plan.Plan{
+		Tools: []plan.ToolPlan{{
+			Tool:  "git",
+			Links: []plan.LinkStep{{Target: "/home/taro/.gitconfig", Source: "/dotfiles/git/.gitconfig", Action: plan.ActionCreate}},
+			Once:  "echo setup",
+			After: "exit 1",
+		}},
+	}
+	afterErr := errors.New("after failed")
+	fx := &fakeExecutor{
+		RunHookFunc: func(cmdStr, dir string, out io.Writer) error {
+			if cmdStr == "exit 1" {
+				return afterErr
+			}
+			return nil
+		},
+	}
+	_, newState, err := apply.Execute(apply.ExecParams{
+		Plan: pl, Current: emptyState(), BackupDir: "/b", Out: io.Discard, Executor: fx,
+	})
+	if !errors.Is(err, afterErr) {
+		t.Fatalf("expected the after failure to propagate, got %v", err)
+	}
+	if newState.ManagedResources["/home/taro/.gitconfig"].OncePending {
+		t.Fatalf("once already ran; an after failure must not re-arm it")
+	}
+}

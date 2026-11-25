@@ -25,15 +25,23 @@ func TestOSInspector_InspectAndReadFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Inspect file: %v", err)
 	}
-	if !got.Exists || got.IsSymlink {
+	if !got.Exists || got.IsSymlink || !got.IsRegular {
 		t.Fatalf("regular file misread: %+v", got)
+	}
+
+	got, err = ins.Inspect(dir)
+	if err != nil {
+		t.Fatalf("Inspect dir: %v", err)
+	}
+	if !got.Exists || got.IsSymlink || got.IsRegular {
+		t.Fatalf("directory misread: %+v", got)
 	}
 
 	got, err = ins.Inspect(link)
 	if err != nil {
 		t.Fatalf("Inspect link: %v", err)
 	}
-	if !got.Exists || !got.IsSymlink || got.LinkDest != file {
+	if !got.Exists || !got.IsSymlink || got.IsRegular || got.LinkDest != file {
 		t.Fatalf("symlink misread: %+v", got)
 	}
 

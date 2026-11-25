@@ -20,9 +20,15 @@ type Resource struct {
 	// ("template" resources only). It lets destroy/prune verify the file
 	// is still ten's own before deleting it, the way a symlink's
 	// destination identifies a "symlink" resource. Empty on records
-	// written before content hashing existed; such templates are removed
-	// unverified, as they always were.
+	// written before content hashing existed; such templates are only
+	// checked to still be a regular file before removal.
 	ContentHash string `json:"content_hash,omitempty"`
+	// OncePending marks a resource ten put in place on a run whose once
+	// hook then failed. The resource stays tracked — so its backup_path
+	// is never forgotten and destroy/prune still manage it — but the
+	// owning tool's once hook is re-armed on the next apply, exactly as
+	// if the target were still untracked.
+	OncePending bool `json:"once_pending,omitempty"`
 }
 
 // HashContent returns the hash used in Resource.ContentHash for the

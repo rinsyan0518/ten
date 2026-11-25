@@ -111,7 +111,25 @@ func Execute(p ExecParams) (Result, state.State, error) {
 	var outcomes []ToolOutcome
 	for _, tp := range p.Plan.Tools {
 		outcome := ToolOutcome{Tool: tp.Tool, Before: tp.Before}
+		onceDone := false
 		fail := func(err error) (Result, state.State, error) {
+			// The tool's once hook was armed but never completed — it
+			// failed itself, or an earlier step of this tool did. Mark the
+			// targets that armed it as once-pending instead of leaving them
+			// recorded as fully managed (which would make the next run never
+			// re-fire once, silently losing the setup command) or dropping
+			// them (which would forget any backup just taken of the user's
+			// original file, so destroy could no longer restore it). This
+			// also re-marks a pending target whose record an earlier step of
+			// this run already rewrote without the flag.
+			if tp.Once != "" && !onceDone {
+				for _, step := range tp.Links {
+					markOncePending(newState, p.Current, step.Target)
+				}
+				for _, step := range tp.Templates {
+					markOncePending(newState, p.Current, step.Target)
+				}
+			}
 			if !outcome.empty() {
 				outcomes = append(outcomes, outcome)
 			}
@@ -124,6 +142,13 @@ func Execute(p ExecParams) (Result, state.State, error) {
 
 		for _, step := range tp.Links {
 			if step.Action == plan.ActionNoop {
+				// Record the link even though nothing was written: a correct
+				// symlink can be on disk without a state record (a run whose
+				// once hook failed, or a link the user created by hand), and
+				// leaving it unrecorded would keep it out of prune/destroy
+				// and re-arm once on every later apply.
+				prev := p.Current.ManagedResources[step.Target]
+				newState.ManagedResources[step.Target] = state.Resource{Tool: tp.Tool, Type: "symlink", Source: step.Source, BackupPath: prev.BackupPath}
 				outcome.Links = append(outcome.Links, LinkResult{Target: step.Target, Source: step.Source, Skipped: true})
 				continue
 			}
@@ -163,24 +188,9 @@ func Execute(p ExecParams) (Result, state.State, error) {
 		}
 
 		if err := p.Executor.RunHook(tp.Once, p.HookDir, out); err != nil {
-			// Roll back tracking of targets this run newly managed for
-			// this tool (the resources themselves stay on disk). Recording
-			// them would make the next run consider them already tracked
-			// and never re-fire once — the failed setup command would be
-			// silently lost forever. Untracked, the next apply re-links
-			// them idempotently and arms once again.
-			for _, step := range tp.Links {
-				if _, tracked := p.Current.ManagedResources[step.Target]; !tracked {
-					delete(newState.ManagedResources, step.Target)
-				}
-			}
-			for _, step := range tp.Templates {
-				if _, tracked := p.Current.ManagedResources[step.Target]; !tracked {
-					delete(newState.ManagedResources, step.Target)
-				}
-			}
 			return fail(err)
 		}
+		onceDone = true
 		outcome.Once = tp.Once
 
 		if err := p.Executor.RunHook(tp.After, p.HookDir, out); err != nil {
@@ -193,4 +203,19 @@ func Execute(p ExecParams) (Result, state.State, error) {
 	}
 
 	return Result{Outcomes: outcomes, Prunes: prunes}, newState, nil
+}
+
+// markOncePending flags target's record in next as once-pending when it
+// is one of the targets that armed its tool's once hook this run: absent
+// from current, or already once-pending there. A target that was fully
+// managed before this run is left alone, as is one with no record in
+// next (its step never ran, so nothing was put in place).
+func markOncePending(next, current state.State, target string) {
+	if prev, tracked := current.ManagedResources[target]; tracked && !prev.OncePending {
+		return
+	}
+	if res, ok := next.ManagedResources[target]; ok {
+		res.OncePending = true
+		next.ManagedResources[target] = res
+	}
 }
